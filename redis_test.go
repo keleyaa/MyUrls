@@ -4,21 +4,43 @@ import (
 	"context"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
-var mockRedisOptions = &redis.Options{
-	Addr:     "localhost:6379",
-	Password: "",
-	DB:       0,
+func newTestRedisOptions(t testing.TB) *redis.Options {
+	t.Helper()
+
+	server, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start test Redis: %v", err)
+	}
+	t.Cleanup(server.Close)
+
+	return &redis.Options{Addr: server.Addr()}
+}
+
+func resetRedisClient(t testing.TB) {
+	t.Helper()
+
+	previous := RedisClient
+	RedisClient = nil
+	t.Cleanup(func() {
+		if RedisClient != nil && RedisClient != previous {
+			_ = RedisClient.Close()
+		}
+		RedisClient = previous
+	})
 }
 
 func TestGetRedisClient(t *testing.T) {
+	resetRedisClient(t)
+
 	client := GetRedisClient()
 	assert.Nil(t, client)
 
-	initRedisClient(mockRedisOptions)
+	initRedisClient(newTestRedisOptions(t))
 	client = GetRedisClient()
 	assert.NotNil(t, client)
 
@@ -33,7 +55,9 @@ func TestGetRedisClient(t *testing.T) {
 }
 
 func BenchmarkGetRedisClient(b *testing.B) {
-	initRedisClient(mockRedisOptions)
+	resetRedisClient(b)
+	initRedisClient(newTestRedisOptions(b))
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		GetRedisClient().Get(context.Background(), "key")
