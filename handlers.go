@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-const defaultTTL = time.Hour * 24 * 365 // 默认过期时间，1年
 const defaultRenewTime = time.Hour * 48 // 默认续命时间，2天
 const defaultShortKeyLength = 7         // 默认短链接长度，7位
 
@@ -15,12 +17,19 @@ func ShortToLongHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := Response{}
 		shortKey := c.Param("shortKey")
-		longURL := ShortToLong(c, shortKey)
-		if longURL == "" {
+		longURL, err := ResolveShortURL(c, shortKey)
+		if errors.Is(err, redis.Nil) {
 			resp.Code = ResponseCodeServerError
-			resp.Msg = "failed to get long URL, please check the short URL if exists or expired"
+			resp.Msg = "short URL not found or expired"
 
-			c.JSON(404, resp)
+			c.JSON(http.StatusNotFound, resp)
+			return
+		}
+		if err != nil {
+			resp.Code = ResponseCodeServerError
+			resp.Msg = "failed to get long URL"
+
+			c.JSON(http.StatusInternalServerError, resp)
 			return
 		}
 
@@ -69,21 +78,8 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			}
 		}
 
-		// generate short key
-		if req.ShortKey == "" {
-			req.ShortKey = GenerateRandomString(defaultShortKeyLength)
-		}
-		// check whether short key exists
-		exists, err := CheckRedisKeyIfExist(c, req.ShortKey)
-		if err != nil {
-			resp.Code = ResponseCodeServerError
-			resp.Msg = "failed to check short key"
-			logger.Error("failed to check short key: ", err.Error())
-
-			c.JSON(200, resp)
-			return
-		}
-		if exists {
+		shortKey, err := CreateShortURL(c, req.ShortKey, req.LongUrl)
+		if errors.Is(err, ErrShortKeyExists) {
 			resp.Code = ResponseCodeParamsCheckError
 			resp.Msg = "short key already exists, please use another one or leave it empty to generate automatically"
 
@@ -91,13 +87,7 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			c.JSON(200, resp)
 			return
 		}
-
-		options := &LongToShortOptions{
-			ShortKey:   req.ShortKey,
-			URL:        req.LongUrl,
-			expiration: defaultTTL,
-		}
-		if err := LongToShort(c, options); err != nil {
+		if err != nil {
 			resp.Code = ResponseCodeServerError
 			resp.Msg = "failed to create short URL"
 			logger.Warn("failed to create short URL: ", err.Error())
@@ -106,7 +96,7 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			return
 		}
 
-		shortURL := cfg.Proto + "://" + cfg.Domain + "/" + options.ShortKey
+		shortURL := cfg.Proto + "://" + cfg.Domain + "/" + shortKey
 
 		// 兼容以前的返回结构体
 		respDataLegacy := gin.H{

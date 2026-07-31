@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -97,4 +98,36 @@ func TestLongToShortHandler(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, keys, "danger")
 	assert.NotContains(t, keys, "healthz")
+}
+
+func TestShortToLongHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
+
+	router := gin.New()
+	router.GET("/:shortKey", ShortToLongHandler())
+
+	t.Run("redirects existing key", func(t *testing.T) {
+		require.NoError(t, LongToShort(t.Context(), &LongToShortOptions{
+			ShortKey:   "found",
+			URL:        "https://example.com/found",
+			expiration: time.Hour,
+		}))
+
+		request := httptest.NewRequest(http.MethodGet, "/found", nil)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		assert.Equal(t, http.StatusMovedPermanently, response.Code)
+		assert.Equal(t, "https://example.com/found", response.Header().Get("Location"))
+	})
+
+	t.Run("returns not found for missing key", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/missing", nil)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		assert.Equal(t, http.StatusNotFound, response.Code)
+	})
 }

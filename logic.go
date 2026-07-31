@@ -2,8 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var (
+	ErrShortKeyExists    = errors.New("short key already exists")
+	ErrShortKeyExhausted = errors.New("could not generate an available short key")
+)
+
+const defaultTTL = time.Hour * 24 * 365 // 默认过期时间，1年
 
 // ShortToLong gets the long URL from a short URL
 func ShortToLong(ctx context.Context, shortKey string) string {
@@ -22,6 +30,42 @@ type LongToShortOptions struct {
 func LongToShort(ctx context.Context, options *LongToShortOptions) error {
 	rc := GetRedisClient()
 	return rc.SetEx(ctx, options.ShortKey, options.URL, options.expiration).Err()
+}
+
+// CreateShortURL stores longURL under requestedKey, or generates a key when none is requested.
+func CreateShortURL(ctx context.Context, requestedKey, longURL string) (string, error) {
+	if requestedKey != "" {
+		created, err := StoreShortURL(ctx, requestedKey, longURL, defaultTTL)
+		if err != nil {
+			return "", err
+		}
+		if !created {
+			return "", ErrShortKeyExists
+		}
+		return requestedKey, nil
+	}
+
+	for range 5 {
+		shortKey, err := GenerateRandomString(defaultShortKeyLength)
+		if err != nil {
+			return "", err
+		}
+
+		created, err := StoreShortURL(ctx, shortKey, longURL, defaultTTL)
+		if err != nil {
+			return "", err
+		}
+		if created {
+			return shortKey, nil
+		}
+	}
+
+	return "", ErrShortKeyExhausted
+}
+
+// ResolveShortURL returns the long URL for shortKey.
+func ResolveShortURL(ctx context.Context, shortKey string) (string, error) {
+	return LoadLongURL(ctx, shortKey)
 }
 
 // Renew updates the expiration time of a short URL

@@ -1,28 +1,42 @@
 package main
 
 import (
-	"math/rand"
-	"time"
+	"crypto/rand"
+	"fmt"
+	"io"
 )
 
 const letterBytes = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-// generate is a function that takes an integer bits and returns a string.
-// The function generates a random string of length equal to bits using the letterBytes slice.
-// The letterBytes slice contains characters that can be used to generate a random string.
-// The generation of the random string is based on the current time using the UnixNano() function.
-func GenerateRandomString(bits int) string {
-	// Create a byte slice b of length bits.
-	b := make([]byte, bits)
+// GenerateRandomString returns a cryptographically random alpha-numeric string.
+func GenerateRandomString(length int) (string, error) {
+	return generateRandomString(rand.Reader, length)
+}
 
-	// Create a new random number generator with the current time as the seed.
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Generate a random byte for each element in the byte slice b using the letterBytes slice.
-	for i := range b {
-		b[i] = letterBytes[r.Intn(len(letterBytes))]
+func generateRandomString(reader io.Reader, length int) (string, error) {
+	if length < 0 {
+		return "", fmt.Errorf("random string length must not be negative")
 	}
 
-	// Convert the byte slice to a string and return it.
-	return string(b)
+	result := make([]byte, length)
+	randomBytes := make([]byte, length)
+	limit := byte(256 / len(letterBytes) * len(letterBytes))
+
+	for written := 0; written < length; {
+		if _, err := io.ReadFull(reader, randomBytes); err != nil {
+			return "", err
+		}
+		for _, randomByte := range randomBytes {
+			if randomByte >= limit {
+				continue
+			}
+			result[written] = letterBytes[randomByte%byte(len(letterBytes))]
+			written++
+			if written == length {
+				break
+			}
+		}
+	}
+
+	return string(result), nil
 }
