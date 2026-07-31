@@ -4,15 +4,21 @@
 环境运行前先检查 `docker compose config`，并把示例域名、密码、Token、镜像标签和
 备份路径替换为实际值。
 
+命令前提：POSIX shell、Docker、Docker Compose v2、`curl`、`jq`、`tar`、`openssl`、
+`awk`、`grep`、`find`、`mv`。`jq` 用于精确验证兼容响应；`tar` 与 `openssl` 用于完整归档和 SHA-256
+校验。所有启动命令均有 120 秒 readiness 上限，不使用固定 sleep；若失败，应停止后续
+步骤并检查 `docker compose ps --all` 与相关服务日志。
+
 ## 架构与端口
 
 ```text
 客户端 ── HTTP/HTTPS ──> myurls:8080 ── Compose 内部网络 ──> myurls-redis:6379
 ```
 
-Compose 只将 `myurls` 的 `MYURLS_PORT` 映射到宿主机；Redis 没有 `ports` 配置，不能
-从宿主机或公网直接访问。若前置反向代理终止 TLS，应让 `MYURLS_DOMAIN` 和
-`MYURLS_PROTO` 与用户实际访问地址一致。
+Compose 只将 `myurls` 的 `MYURLS_PORT` 映射到宿主机；Redis 未发布宿主机端口，默认
+仅同一 Compose 网络中的容器可访问。Docker 管理员或获准加入该网络的容器仍可访问
+Redis。若前置反向代理终止 TLS，应让 `MYURLS_DOMAIN` 和 `MYURLS_PROTO` 与用户实际
+访问地址一致。
 
 应用镜像最终层基于 `scratch`，没有 shell，以 UID/GID `65532:65532` 运行。Compose
 同时启用只读根文件系统、`no-new-privileges` 并移除全部 Linux capabilities；只有日志
@@ -80,84 +86,233 @@ docker compose exec myurls-redis sh -ec '
 
 ## 备份
 
-以下冷备份流程适用于当前 bind mount。必须先停止应用，避免备份窗口继续产生写入；
-再停止 Redis 并等待其退出，确保 RDB/AOF 文件处于一致状态，最后复制配置的数据目录。
+以下冷备份流程适用于当前 bind mount。它在任何停止操作前确认数据源就是 Compose
+实际挂载的 `/data` 源；随后停止应用并确认非 running，在 Redis 仍运行时同步执行
+`SAVE`、记录版本及 RDB/AOF 配置，最后以 60 秒上限停止 Redis 并确认非 running。
+整个数据目录会被归档，因此 RDB、AOF 和 `appendonlydir` 都会保留。
 
 ```sh
-# 必须与 .env 中的 MYURLS_REDIS_DATA_PATH 一致。
-export MYURLS_REDIS_DATA_PATH=./data/redis
-export BACKUP_DIR="./backups/myurls-$(date +%Y%m%d-%H%M%S)"
+(
+  set +e
+  # 必须与 .env 中的 MYURLS_REDIS_DATA_PATH 一致；赋值只在本子 shell 生效。
+  MYURLS_REDIS_DATA_PATH="${MYURLS_REDIS_DATA_PATH:-./data/redis}"
+  BACKUP_DIR="./backups/myurls-$(date +%Y%m%d-%H%M%S)"
+  export MYURLS_REDIS_DATA_PATH BACKUP_DIR
+  (
+    set -eu
+    for tool in docker jq tar openssl awk grep; do command -v "$tool" >/dev/null; done
+    test -d "$MYURLS_REDIS_DATA_PATH"
+    test ! -e "$BACKUP_DIR"
 
-docker compose stop myurls
-docker compose stop myurls-redis
-mkdir -p "$BACKUP_DIR"
-cp -a "$MYURLS_REDIS_DATA_PATH" "$BACKUP_DIR/redis-data"
-test -d "$BACKUP_DIR/redis-data"
+    data_source="$(cd "$MYURLS_REDIS_DATA_PATH" && pwd -P)"
+    compose_source="$(docker compose config --format json |
+      jq -er '.services["myurls-redis"].volumes[] | select(.target == "/data") | .source')"
+    test "$data_source" = "$compose_source"
+
+    redis_id="$(docker compose ps --quiet myurls-redis)"
+    test -n "$redis_id"
+    test "$(docker inspect --format '{{.State.Running}}' "$redis_id")" = true
+    mkdir -p "$(dirname "$BACKUP_DIR")"
+    mkdir "$BACKUP_DIR"
+
+    docker compose stop --timeout 60 myurls
+    app_id="$(docker compose ps --all --quiet myurls)"
+    test -n "$app_id"
+    test "$(docker inspect --format '{{.State.Running}}' "$app_id")" = false
+
+    docker compose exec -T myurls-redis sh -eu -c '
+      if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
+      redis-cli SAVE >/dev/null
+      version="$(redis-cli --raw INFO server | sed -n "s/^redis_version://p" | tr -d "\r")"
+      save="$(redis-cli --raw CONFIG GET save | tail -n 1 | tr -d "\r")"
+      appendonly="$(redis-cli --raw CONFIG GET appendonly | tail -n 1 | tr -d "\r")"
+      test -n "$version"
+      printf "redis_version=%s\nredis_major=%s\nsave=%s\nappendonly=%s\n" \
+        "$version" "${version%%.*}" "$save" "$appendonly"
+    ' > "$BACKUP_DIR/redis-manifest.env"
+
+    docker compose stop --timeout 60 myurls-redis
+    redis_id="$(docker compose ps --all --quiet myurls-redis)"
+    test -n "$redis_id"
+    test "$(docker inspect --format '{{.State.Running}}' "$redis_id")" = false
+
+    tar -C "$MYURLS_REDIS_DATA_PATH" -cpf "$BACKUP_DIR/redis-data.tar" .
+    (
+      set -eu
+      cd "$BACKUP_DIR"
+      openssl dgst -sha256 -r redis-manifest.env redis-data.tar > SHA256SUMS
+      while read -r expected file; do
+        file="${file#\*}"
+        actual="$(openssl dgst -sha256 -r "$file" | awk '{print $1}')"
+        test "$actual" = "$expected"
+      done < SHA256SUMS
+    )
+  )
+  backup_status=$?
+
+  if [ "$backup_status" -ne 0 ]; then
+    printf '%s\n' '冷备份失败：不得重启、切换数据路径或继续升级。先检查当前状态和日志。' >&2
+    docker compose ps --all
+    docker compose logs --tail=200 myurls myurls-redis
+    false
+  else
+    printf 'cold_backup=%s\n' "$BACKUP_DIR"
+    printf '%s\n' '冷备份完成；应用和 Redis 保持停止。'
+  fi
+)
 ```
 
-不要在 Redis 仍运行时直接复制 `/data`。备份完成后可原样启动：
+若数据路径错误、停止失败、归档失败或校验不匹配，内层 `set -eu` 会中断，外层不会
+执行启动块，也不会改变 Compose 数据路径。失败发生在停止之后时，服务应保持停止，
+修正原因并重新完成整块备份后才能启动。把备份复制到另一台受控主机，记录时间和当前
+Redis 镜像 digest，并定期做恢复演练。
+
+如果只是普通备份而不是立即升级，确认 `cold_backup=` 路径已异地保存后，再用独立块
+恢复服务；立即升级 Redis 时不要执行此块，保持维护窗口无写入，直到 Redis 8 及升级前
+旧短码验证成功后才启动应用。
 
 ```sh
-docker compose up -d
-docker compose ps
+(
+  set +e
+  (
+    set -eu
+    docker compose up -d --wait --wait-timeout 120
+    curl --fail --silent --show-error http://localhost:8080/healthz
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose ps --all
+    docker compose logs --tail=200 myurls myurls-redis
+    false
+  fi
+)
 ```
-
-将备份复制到另一台受控主机，记录备份时间、当前 Redis 镜像 digest 和校验和，并定期
-做恢复演练。若启用了 AOF，备份必须同时保留 `appendonlydir`；默认配置主要使用 RDB。
 
 ## Redis 7→8 升级
 
-1. 在 Redis 7 仍运行时记录版本和持久化配置，并创建一个可验证的测试短链。
-2. 严格按“备份”章节停止 `myurls`、停止 Redis，再复制升级前数据目录。
-3. 将 `docker-compose.yaml` 中 Redis 镜像改为经验证的 Redis 8 版本及固定 digest。
-4. 只启动 Redis，检查数据加载无误后再启动应用。
+本节命令应在同一个 shell 中执行，以保留 `PRE7_KEY`。先在 Redis 7
+仍运行时创建唯一的升级前短码，并精确确认兼容响应和跳转。这里的时间戳加 PID 只包含
+短码允许的字符。
 
 ```sh
-docker compose pull myurls-redis
-docker compose up -d myurls-redis
-docker compose logs --tail=200 myurls-redis
+export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
 
-docker compose exec myurls-redis sh -ec '
-  if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
-  redis-cli INFO server | grep "^redis_version:"
-  redis-cli CONFIG GET save
-  redis-cli CONFIG GET appendonly
-  redis-cli PING
-'
+(
+  set +e
+  (
+    set -eu
+    redis_version="$(docker compose exec -T myurls-redis sh -eu -c '
+      if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
+      redis-cli --raw INFO server | sed -n "s/^redis_version://p" | tr -d "\r"
+    ')"
+    case "$redis_version" in 7.*) ;; *) false ;; esac
 
-docker compose up -d myurls
+    pre7_payload="$(jq -nc --arg key "$PRE7_KEY" \
+      '{longUrl:"https://example.com/pre-redis8",shortKey:$key}')"
+    pre7_response="$(curl --fail-with-body --silent --show-error \
+      http://localhost:8080/short \
+      -H "Authorization: Bearer ${MYURLS_API_TOKEN:-}" \
+      -H 'Content-Type: application/json' -d "$pre7_payload")"
+    printf '%s\n' "$pre7_response" |
+      jq -e '.Code == 1 and (.ShortUrl | type == "string" and length > 0)' >/dev/null
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${PRE7_KEY}")" = 301
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose ps --all
+    docker compose logs --tail=200 myurls myurls-redis
+    false
+  fi
+)
+```
+
+接着按“备份”章节执行完整冷备份，记录其 `cold_backup=` 输出且不要执行普通备份的
+重启块。把下面 `BACKUP_DIR` 占位符替换成该路径，并确认 manifest 包含
+`redis_major=7`。将 `docker-compose.yaml` 中 Redis 镜像改为经验证的 Redis 8 版本和
+固定 digest 后，只启动 Redis 并等待健康；确认升级前旧短码数据存在后才启动应用：
+
+```sh
+(
+  set +e
+  (
+    set -eu
+    BACKUP_DIR='./backups/<成功冷备份目录>'
+    grep -qx 'redis_major=7' "$BACKUP_DIR/redis-manifest.env"
+    docker compose pull myurls-redis
+    docker compose up -d --wait --wait-timeout 120 myurls-redis
+    docker compose logs --tail=200 myurls-redis
+    docker compose exec -T -e PRE7_KEY="$PRE7_KEY" myurls-redis sh -eu -c '
+      if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
+      version="$(redis-cli --raw INFO server | sed -n "s/^redis_version://p" | tr -d "\r")"
+      case "$version" in 8.*) ;; *) false ;; esac
+      redis-cli CONFIG GET save
+      redis-cli CONFIG GET appendonly
+      redis-cli PING | grep -qx PONG
+      test "$(redis-cli --raw EXISTS "$PRE7_KEY")" = 1
+    '
+    docker compose up -d --wait --wait-timeout 120 myurls
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${PRE7_KEY}")" = 301
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose ps --all
+    docker compose logs --tail=200 myurls myurls-redis
+    false
+  fi
+)
 ```
 
 不要仅凭容器处于 running 判断升级成功。必须检查 Redis 日志中没有 RDB/AOF 加载错误，
-并执行下一章的全部验证。升级确认前保留升级前备份且设为只读。
+且 Redis 7 创建的 `PRE7_KEY` 在 Redis 8 上仍返回 301。升级确认前保留升级前备份、
+`SHA256SUMS` 和 manifest，并将它们设为只读。
 
 ## 验证
 
 ```sh
-# 1. 容器健康与 Redis 协议
-docker compose ps
-curl --fail --silent --show-error http://localhost:8080/healthz
-docker compose exec myurls-redis sh -ec '
-  if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
-  redis-cli PING
-  redis-cli LASTSAVE
-'
+export UPGRADE_KEY="upgrade-$(date +%Y%m%d%H%M%S)-$$"
 
-# 2. 创建并检查跳转；替换为不会与现有短码冲突的值。
-# 若 .env 启用了鉴权，先通过安全的秘密注入方式将同一 Token 导出到当前 shell。
-curl --fail-with-body http://localhost:8080/short \
-  -H "Authorization: Bearer ${MYURLS_API_TOKEN:-}" \
-  -H 'Content-Type: application/json' \
-  -d '{"longUrl":"https://example.com/upgrade-check","shortKey":"upgrade-check"}'
-test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-  http://localhost:8080/upgrade-check)" = 301
+(
+  set +e
+  (
+    set -eu
+    docker compose ps
+    curl --fail --silent --show-error http://localhost:8080/healthz
+    docker compose exec -T myurls-redis sh -eu -c '
+      if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
+      redis-cli PING | grep -qx PONG
+      redis-cli LASTSAVE
+    '
 
-# 3. 重启后再次确认持久化数据和健康状态
-docker compose restart myurls-redis myurls
-docker compose ps
-curl --fail --silent --show-error http://localhost:8080/healthz
-test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-  http://localhost:8080/upgrade-check)" = 301
+    upgrade_payload="$(jq -nc --arg key "$UPGRADE_KEY" \
+      '{longUrl:"https://example.com/upgrade-check",shortKey:$key}')"
+    upgrade_response="$(curl --fail-with-body --silent --show-error \
+      http://localhost:8080/short \
+      -H "Authorization: Bearer ${MYURLS_API_TOKEN:-}" \
+      -H 'Content-Type: application/json' -d "$upgrade_payload")"
+    printf '%s\n' "$upgrade_response" |
+      jq -e '.Code == 1 and (.ShortUrl | type == "string" and length > 0)' >/dev/null
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${UPGRADE_KEY}")" = 301
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${PRE7_KEY}")" = 301
+
+    docker compose restart myurls-redis myurls
+    docker compose up -d --wait --wait-timeout 120
+    curl --fail --silent --show-error http://localhost:8080/healthz
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${UPGRADE_KEY}")" = 301
+    test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+      "http://localhost:8080/${PRE7_KEY}")" = 301
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose ps --all
+    docker compose logs --tail=200 myurls myurls-redis
+    false
+  fi
+)
 ```
 
 若 `CONFIG GET appendonly` 返回 `yes`，还要确认 Redis 日志无 AOF 截断或重放错误；无论
@@ -167,37 +322,110 @@ test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}'
 
 Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢复升级前的 Redis 7 冷
 备份，绝不能让 Redis 7 复用或打开 Redis 8 已写入的数据目录；升级后的新增数据需要先
-通过独立、经过验证的迁移流程处理，不能直接复制持久化文件。
+通过独立、经过验证的迁移流程处理，不能直接复制持久化文件。先把 Compose Redis 镜像
+改回已记录的 Redis 7 固定 digest；以下流程会确认目标镜像标签和备份 manifest 都是 7。
 
 ```sh
-export MYURLS_REDIS_DATA_PATH=./data/redis
-export PRE_UPGRADE_BACKUP=./backups/myurls-before-redis8/redis-data
-export REDIS8_DATA_HOLD="./data/redis8-hold-$(date +%Y%m%d-%H%M%S)"
+(
+  set +e
+  (
+    set -eu
+    MYURLS_REDIS_DATA_PATH="${MYURLS_REDIS_DATA_PATH:-./data/redis}"
+    PRE_UPGRADE_BACKUP='./backups/<Redis-7-成功冷备份目录>'
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    REDIS8_DATA_HOLD="${MYURLS_REDIS_DATA_PATH}.redis8-hold-${stamp}"
+    REDIS7_STAGING="${MYURLS_REDIS_DATA_PATH}.redis7-staging-${stamp}"
+    export MYURLS_REDIS_DATA_PATH
 
-docker compose stop myurls
-docker compose stop myurls-redis
-test -d "$PRE_UPGRADE_BACKUP"
-mv "$MYURLS_REDIS_DATA_PATH" "$REDIS8_DATA_HOLD"
-mkdir -p "$MYURLS_REDIS_DATA_PATH"
-cp -a "$PRE_UPGRADE_BACKUP/." "$MYURLS_REDIS_DATA_PATH/"
+    for tool in docker jq tar openssl awk grep find mv; do command -v "$tool" >/dev/null; done
+    test -d "$MYURLS_REDIS_DATA_PATH"
+    test -d "$PRE_UPGRADE_BACKUP"
+    test -f "$PRE_UPGRADE_BACKUP/redis-manifest.env"
+    test -f "$PRE_UPGRADE_BACKUP/redis-data.tar"
+    test -f "$PRE_UPGRADE_BACKUP/SHA256SUMS"
+    test ! -e "$REDIS8_DATA_HOLD"
+    test ! -e "$REDIS7_STAGING"
+    grep -qx 'redis_major=7' "$PRE_UPGRADE_BACKUP/redis-manifest.env"
+    docker compose config --images | grep -Eq '^redis:7(\.|$)'
+
+    data_source="$(cd "$MYURLS_REDIS_DATA_PATH" && pwd -P)"
+    compose_source="$(docker compose config --format json |
+      jq -er '.services["myurls-redis"].volumes[] | select(.target == "/data") | .source')"
+    test "$data_source" = "$compose_source"
+
+    (
+      set -eu
+      cd "$PRE_UPGRADE_BACKUP"
+      while read -r expected file; do
+        file="${file#\*}"
+        actual="$(openssl dgst -sha256 -r "$file" | awk '{print $1}')"
+        test "$actual" = "$expected"
+      done < SHA256SUMS
+      if tar -tf redis-data.tar | grep -Eq '(^/|(^|/)\.\.(/|$))'; then false; fi
+    )
+    mkdir "$REDIS7_STAGING"
+    tar -C "$REDIS7_STAGING" -xpf "$PRE_UPGRADE_BACKUP/redis-data.tar"
+    find "$REDIS7_STAGING" -type f \
+      \( -name '*.rdb' -o -name '*.aof' -o -name '*.manifest' \) | grep -q .
+
+    docker compose stop --timeout 60 myurls
+    app_id="$(docker compose ps --all --quiet myurls)"
+    test -n "$app_id"
+    test "$(docker inspect --format '{{.State.Running}}' "$app_id")" = false
+    docker compose stop --timeout 60 myurls-redis
+    redis_id="$(docker compose ps --all --quiet myurls-redis)"
+    test -n "$redis_id"
+    test "$(docker inspect --format '{{.State.Running}}' "$redis_id")" = false
+
+    moved_to_hold=false
+    restore_hold() {
+      if [ "$moved_to_hold" = true ] && [ ! -e "$MYURLS_REDIS_DATA_PATH" ] &&
+         [ -d "$REDIS8_DATA_HOLD" ]; then
+        mv "$REDIS8_DATA_HOLD" "$MYURLS_REDIS_DATA_PATH"
+      fi
+    }
+    trap 'restore_hold' EXIT HUP INT TERM
+    mv "$MYURLS_REDIS_DATA_PATH" "$REDIS8_DATA_HOLD"
+    moved_to_hold=true
+    mv "$REDIS7_STAGING" "$MYURLS_REDIS_DATA_PATH"
+    moved_to_hold=false
+    trap - EXIT HUP INT TERM
+  )
+  switch_status=$?
+
+  if [ "$switch_status" -ne 0 ]; then
+    printf '%s\n' '回滚预检或原子切换失败：禁止启动任何服务。' >&2
+    docker compose ps --all
+    false
+  else
+    (
+      set -eu
+      docker compose up -d --wait --wait-timeout 120 myurls-redis
+      docker compose logs --tail=200 myurls-redis
+      docker compose exec -T myurls-redis sh -eu -c '
+        if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
+        version="$(redis-cli --raw INFO server | sed -n "s/^redis_version://p" | tr -d "\r")"
+        case "$version" in 7.*) ;; *) false ;; esac
+        redis-cli PING | grep -qx PONG
+      '
+      docker compose up -d --wait --wait-timeout 120 myurls
+      curl --fail --silent --show-error http://localhost:8080/healthz
+    )
+    start_status=$?
+    if [ "$start_status" -ne 0 ]; then
+      docker compose ps --all
+      docker compose logs --tail=200 myurls myurls-redis
+      false
+    fi
+  fi
+)
 ```
 
-然后把 Compose 中的 Redis 镜像改回已记录的 Redis 7 固定 digest，只启动 Redis 并检查
-日志、版本、RDB/AOF 加载和 `PING`，确认无误后再启动应用：
-
-```sh
-docker compose up -d myurls-redis
-docker compose logs --tail=200 myurls-redis
-docker compose exec myurls-redis sh -ec '
-  if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
-  redis-cli INFO server | grep "^redis_version:"
-  redis-cli PING
-'
-docker compose up -d myurls
-curl --fail http://localhost:8080/healthz
-```
-
-回滚验证完成前保留 `REDIS8_DATA_HOLD`，不要覆盖或删除它。
+staging 与正式数据目录位于同一父目录，因此最后两次 `mv` 是同一文件系统内的目录切换，
+不会把 Redis 7 文件合并进 Redis 8 目录。切换中途失败时 trap 会在正式路径缺失的条件下
+尝试把 hold 移回；无论自动恢复是否成功，服务都保持停止。先检查三个路径；若正式路径
+缺失且 hold 完整，可手工 `mv "$REDIS8_DATA_HOLD" "$MYURLS_REDIS_DATA_PATH"` 恢复原路径，
+但仍须保持服务停止并重新调查。回滚验证完成前不要覆盖或删除 Redis 8 hold。
 
 ## 镜像升级
 
@@ -213,13 +441,28 @@ YAML
 
 # 使用已在 GHCR Packages 中确认存在的 v* 版本标签或完整 commit SHA 标签。
 export MYURLS_IMAGE=ghcr.io/keleyaa/myurls:v1.2.3
-docker compose -f docker-compose.yaml -f compose.ghcr.yaml pull myurls
-docker compose -f docker-compose.yaml -f compose.ghcr.yaml up -d --no-build myurls
-docker compose -f docker-compose.yaml -f compose.ghcr.yaml ps
+(
+  set +e
+  (
+    set -eu
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml pull myurls
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml \
+      up -d --no-build --wait --wait-timeout 120 myurls
+    curl --fail --silent --show-error http://localhost:8080/healthz
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml ps --all
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml logs --tail=200 myurls
+    false
+  fi
+)
 ```
 
-发布标签必须是以 `v` 开头的扁平标签，例如 `v1.2.3`；Git ref 名含 `/` 时不能直接
-作为 OCI 镜像标签。工作流也发布完整 Git commit SHA 标签，不发布 `latest`。
+发布 Git 标签必须是以 `v` 开头的扁平标签，例如 `v1.2.3`；含 `/` 不会触发当前
+`v*` 发布规则。即使工作流被触发，Git 标签含 OCI 非法字符（例如 `+`）或超过长度
+限制时也会被转换。必须从 workflow summary 复制实际 version 标签；工作流同时发布
+完整 Git commit SHA 标签，不发布 `latest`。
 
 ## digest 回滚
 
@@ -228,9 +471,22 @@ docker compose -f docker-compose.yaml -f compose.ghcr.yaml ps
 
 ```sh
 export MYURLS_IMAGE='ghcr.io/keleyaa/myurls@sha256:<已验证的完整 digest>'
-docker compose -f docker-compose.yaml -f compose.ghcr.yaml pull myurls
-docker compose -f docker-compose.yaml -f compose.ghcr.yaml up -d --no-build myurls
-curl --fail http://localhost:8080/healthz
+(
+  set +e
+  (
+    set -eu
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml pull myurls
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml \
+      up -d --no-build --wait --wait-timeout 120 myurls
+    curl --fail --silent --show-error http://localhost:8080/healthz
+  )
+  block_status=$?
+  if [ "$block_status" -ne 0 ]; then
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml ps --all
+    docker compose -f docker-compose.yaml -f compose.ghcr.yaml logs --tail=200 myurls
+    false
+  fi
+)
 ```
 
 应用镜像回滚不应顺带回滚 Redis 数据。若故障来自 Redis 升级，必须遵循“Redis 8→7
