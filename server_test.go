@@ -40,6 +40,43 @@ func TestManropeFontIsServedLocally(t *testing.T) {
 	assert.Contains(t, string(license), "SIL OPEN FONT LICENSE Version 1.1")
 }
 
+func TestLuminousFocusStylesContract(t *testing.T) {
+	router := NewRouter(defaultConfig(), Dependencies{
+		Ping: func(context.Context) error { return nil },
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/styles.css", nil))
+
+	require.Equal(t, http.StatusOK, response.Code)
+	styles := strings.ToLower(response.Body.String())
+	for _, required := range []string{
+		"@font-face",
+		"/fonts/manrope-latin-wght-normal.woff2",
+		"font-display: swap",
+		"font-weight: 200 800",
+		"color-scheme: light dark",
+		"radial-gradient",
+		"backdrop-filter",
+		"prefers-color-scheme: dark",
+		"prefers-reduced-motion: reduce",
+		"prefers-reduced-transparency: reduce",
+		"prefers-contrast: more",
+		":focus-visible",
+		"min-width: 20rem",
+		"[hidden]",
+	} {
+		assert.Contains(t, styles, required)
+	}
+	for _, forbidden := range []string{
+		"@import",
+		"url(http",
+		"fonts.googleapis.com",
+		"fonts.gstatic.com",
+	} {
+		assert.NotContains(t, styles, forbidden)
+	}
+}
+
 func TestLuminousFocusDocumentContract(t *testing.T) {
 	router := NewRouter(defaultConfig(), Dependencies{
 		Ping: func(context.Context) error { return nil },
