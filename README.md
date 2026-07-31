@@ -3,6 +3,10 @@
 MyUrls 是一个由 Go 和 Redis 驱动的轻量短链接服务，提供网页界面、`POST /short`
 创建接口、`GET /:shortKey` 跳转和依赖 Redis 的 `GET /healthz` 健康检查。
 
+## 界面预览
+
+![MyUrls Luminous Focus 网站界面](output/playwright/myurls-luminous-focus.png)
+
 当前实现默认保持已有接口兼容性：创建接口同时接受表单和 JSON，请求字段仍为
 `longUrl`、`shortKey`，HTTP 200 成功响应仍为 `{"Code":1,"ShortUrl":"..."}`，短码继续
 区分大小写。服务会拒绝危险的跳转协议和保留短码，并支持可选 Bearer Token、全局
