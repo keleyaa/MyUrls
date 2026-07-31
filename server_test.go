@@ -78,6 +78,7 @@ func TestLuminousFocusDocumentContract(t *testing.T) {
 		`id="long-url"`,
 		`id="shorten-button"`,
 		`aria-label="生成短链接"`,
+		`<svg class="submit-arrow"`,
 		`<details class="custom-key">`,
 		`<summary>`,
 		`id="short-key"`,
