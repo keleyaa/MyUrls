@@ -41,11 +41,13 @@ services:
       - -ec
       - |
         if [ -n "$$MYURLS_REDIS_PASSWORD" ]; then
-          exec redis-server --requirepass "$$MYURLS_REDIS_PASSWORD"
+          exec /usr/local/bin/docker-entrypoint.sh redis-server --requirepass "$$MYURLS_REDIS_PASSWORD"
         fi
-        exec redis-server
+        exec /usr/local/bin/docker-entrypoint.sh redis-server
     volumes:
-      - "${MYURLS_REDIS_DATA_PATH:-./data/redis}:/data"
+      - type: bind
+        source: "${MYURLS_REDIS_DATA_PATH:-./data/redis}"
+        target: /data
     healthcheck:
       test:
         - CMD-SHELL
