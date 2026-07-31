@@ -45,16 +45,24 @@ func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 		err error
 	}
 	results := make(chan result, workers)
+	ready := make(chan struct{}, workers)
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			ready <- struct{}{}
+			<-start
 			url := "https://example.com/" + string(rune('a'+i%26))
 			_, err := CreateShortURL(ctx, requestedKey, url)
 			results <- result{url: url, err: err}
 		}(i)
 	}
+	for range workers {
+		<-ready
+	}
+	close(start)
 	wg.Wait()
 	close(results)
 
@@ -78,4 +86,61 @@ func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 	stored, err := ResolveShortURL(ctx, requestedKey)
 	require.NoError(t, err)
 	assert.Equal(t, winner, stored)
+}
+
+func TestCreateShortURLRetriesGeneratedKeysAfterCollisions(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		keys []string
+	}{
+		{name: "one collision", keys: []string{"taken", "available"}},
+		{name: "multiple collisions", keys: []string{"taken-one", "taken-two", "taken-three", "available"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resetRedisClient(t)
+			initRedisClient(newTestRedisOptions(t))
+			for _, key := range tt.keys[:len(tt.keys)-1] {
+				created, err := StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
+				require.NoError(t, err)
+				require.True(t, created)
+			}
+
+			attempts := 0
+			key, err := createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
+				key := tt.keys[attempts]
+				attempts++
+				return key, nil
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.keys[len(tt.keys)-1], key)
+			assert.Equal(t, len(tt.keys), attempts)
+			stored, err := ResolveShortURL(t.Context(), key)
+			require.NoError(t, err)
+			assert.Equal(t, "https://new.example", stored)
+		})
+	}
+}
+
+func TestCreateShortURLReturnsExhaustedAfterFiveGeneratedCollisions(t *testing.T) {
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
+
+	keys := []string{"taken-one", "taken-two", "taken-three", "taken-four", "taken-five"}
+	for _, key := range keys {
+		created, err := StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
+		require.NoError(t, err)
+		require.True(t, created)
+	}
+
+	attempts := 0
+	key, err := createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
+		key := keys[attempts]
+		attempts++
+		return key, nil
+	})
+
+	assert.Empty(t, key)
+	assert.ErrorIs(t, err, ErrShortKeyExhausted)
+	assert.Equal(t, 5, attempts)
 }

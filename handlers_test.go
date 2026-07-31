@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -102,6 +104,7 @@ func TestLongToShortHandler(t *testing.T) {
 
 func TestShortToLongHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	InitLogger()
 	resetRedisClient(t)
 	initRedisClient(newTestRedisOptions(t))
 
@@ -129,5 +132,30 @@ func TestShortToLongHandler(t *testing.T) {
 		router.ServeHTTP(response, request)
 
 		assert.Equal(t, http.StatusNotFound, response.Code)
+		assert.JSONEq(t, `{"Code":1002,"Message":"failed to get long URL, please check the short URL if exists or expired","Data":null}`, response.Body.String())
 	})
+}
+
+func TestShortToLongHandlerReturnsInternalServerErrorWithoutRedisDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	InitLogger()
+	resetRedisClient(t)
+
+	server, err := miniredis.Run()
+	require.NoError(t, err)
+	initRedisClient(&redis.Options{Addr: server.Addr(), MaxRetries: 0})
+	server.Close()
+
+	router := gin.New()
+	router.GET("/:shortKey", ShortToLongHandler())
+	request := httptest.NewRequest(http.MethodGet, "/redis-down", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	var payload Response
+	require.NoError(t, json.NewDecoder(bytes.NewReader(response.Body.Bytes())).Decode(&payload))
+	assert.Equal(t, ResponseCodeServerError, payload.Code)
+	assert.Equal(t, "failed to get long URL", payload.Msg)
+	assert.NotContains(t, payload.Msg, "connection refused")
 }

@@ -34,6 +34,12 @@ func LongToShort(ctx context.Context, options *LongToShortOptions) error {
 
 // CreateShortURL stores longURL under requestedKey, or generates a key when none is requested.
 func CreateShortURL(ctx context.Context, requestedKey, longURL string) (string, error) {
+	return createShortURL(ctx, requestedKey, longURL, GenerateRandomString)
+}
+
+type shortKeyGenerator func(int) (string, error)
+
+func createShortURL(ctx context.Context, requestedKey, longURL string, generateShortKey shortKeyGenerator) (string, error) {
 	if requestedKey != "" {
 		created, err := StoreShortURL(ctx, requestedKey, longURL, defaultTTL)
 		if err != nil {
@@ -46,7 +52,7 @@ func CreateShortURL(ctx context.Context, requestedKey, longURL string) (string, 
 	}
 
 	for range 5 {
-		shortKey, err := GenerateRandomString(defaultShortKeyLength)
+		shortKey, err := generateShortKey(defaultShortKeyLength)
 		if err != nil {
 			return "", err
 		}

@@ -20,12 +20,13 @@ func ShortToLongHandler() gin.HandlerFunc {
 		longURL, err := ResolveShortURL(c, shortKey)
 		if errors.Is(err, redis.Nil) {
 			resp.Code = ResponseCodeServerError
-			resp.Msg = "short URL not found or expired"
+			resp.Msg = "failed to get long URL, please check the short URL if exists or expired"
 
 			c.JSON(http.StatusNotFound, resp)
 			return
 		}
 		if err != nil {
+			logger.Warnw("failed to get long URL", "shortKey", shortKey, "error", err)
 			resp.Code = ResponseCodeServerError
 			resp.Msg = "failed to get long URL"
 
