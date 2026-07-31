@@ -5,10 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -47,29 +45,4 @@ func main() {
 
 	// start http server
 	run(cfg)
-}
-
-func run(cfg Config) {
-	// init and run server
-	gin.SetMode(gin.ReleaseMode)
-	router := gin.Default()
-
-	// logger
-	router.Use(initServiceLogger())
-
-	// static files
-	router.LoadHTMLGlob("public/*.html")
-	router.StaticFile("/logo.png", "public/logo.png")
-
-	router.GET("/", func(context *gin.Context) {
-		context.HTML(http.StatusOK, "index.html", gin.H{
-			"title": "MyUrls",
-		})
-	})
-
-	router.POST("/short", LongToShortHandler(cfg))
-	router.GET("/:shortKey", ShortToLongHandler())
-
-	logger.Infof("server running on :%s", cfg.Port)
-	router.Run(fmt.Sprintf(":%s", cfg.Port))
 }

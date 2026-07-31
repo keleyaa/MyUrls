@@ -58,6 +58,11 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 		// check parameters
 		req := LongToShortParams{}
 		if err := c.ShouldBind(&req); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				writeBusinessError(c, ResponseCodeParamsCheckError, "request body too large")
+				return
+			}
 			resp.Code = ResponseCodeParamsCheckError
 			resp.Msg = "invalid parameters"
 			logger.Warn("invalid parameters: ", err.Error())
