@@ -63,7 +63,7 @@ func TestRunHealthcheckAcceptsOnlyOK(t *testing.T) {
 		defer server.Close()
 
 		port := server.Listener.Addr().(*net.TCPAddr).Port
-		require.NoError(t, RunHealthcheck(strconv.Itoa(port)))
+		require.NoError(t, RunHealthcheck(t.Context(), strconv.Itoa(port)))
 	})
 
 	t.Run("non OK", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestRunHealthcheckAcceptsOnlyOK(t *testing.T) {
 		defer server.Close()
 
 		port := server.Listener.Addr().(*net.TCPAddr).Port
-		assert.Error(t, RunHealthcheck(strconv.Itoa(port)))
+		assert.Error(t, RunHealthcheck(t.Context(), strconv.Itoa(port)))
 	})
 
 	t.Run("connection error", func(t *testing.T) {
@@ -82,6 +82,17 @@ func TestRunHealthcheckAcceptsOnlyOK(t *testing.T) {
 		port := listener.Addr().(*net.TCPAddr).Port
 		require.NoError(t, listener.Close())
 
-		assert.Error(t, RunHealthcheck(strconv.Itoa(port)))
+		assert.Error(t, RunHealthcheck(t.Context(), strconv.Itoa(port)))
 	})
+}
+
+func TestRunHealthcheckHonorsCanceledContext(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	assert.ErrorIs(t, RunHealthcheck(ctx, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)), context.Canceled)
 }

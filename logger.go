@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +15,12 @@ import (
 )
 
 var logger *zap.SugaredLogger
+
+var (
+	requestLoggerMu     sync.Mutex
+	requestLogger       *zap.Logger
+	requestLoggerWriter *lumberjack.Logger
+)
 
 const (
 	logFileMaxSize    = 50    // 日志文件最大大小（MB）
@@ -28,11 +37,18 @@ func InitLogger() {
 	initZapLogger()
 }
 
-// SyncLogger flushes buffered log entries when the process exits.
-func SyncLogger() {
-	if logger != nil {
-		_ = logger.Sync()
+// SyncLogger flushes buffered log entries when the process exits. Syncing a
+// terminal stream is unsupported on some platforms, but other failures are
+// returned to the caller that owns process shutdown.
+func SyncLogger() error {
+	if logger == nil {
+		return nil
 	}
+	err := logger.Sync()
+	if errors.Is(err, syscall.EINVAL) {
+		return nil
+	}
+	return err
 }
 
 // createLogPath 创建 logs 目录
@@ -69,6 +85,12 @@ func getEncoder() zapcore.Encoder {
 
 // initGinLogger 初始化 gin logger
 func initGinLogger() *zap.Logger {
+	requestLoggerMu.Lock()
+	defer requestLoggerMu.Unlock()
+	if requestLogger != nil {
+		return requestLogger
+	}
+
 	logPath := getLogPath()
 	logFileName := "access.log"
 
@@ -93,7 +115,30 @@ func initGinLogger() *zap.Logger {
 
 	core := zapcore.NewCore(encoder, writeSyncer, zapcore.InfoLevel)
 
-	return zap.New(core, zap.AddCaller())
+	requestLoggerWriter = lumberJackLogger
+	requestLogger = zap.New(core, zap.AddCaller())
+	return requestLogger
+}
+
+// CloseRequestLogger releases the shared access-log writer. It is safe to call
+// repeatedly and is invoked after the HTTP server has stopped accepting work.
+func CloseRequestLogger() error {
+	requestLoggerMu.Lock()
+	requestLog := requestLogger
+	writer := requestLoggerWriter
+	requestLogger = nil
+	requestLoggerWriter = nil
+	requestLoggerMu.Unlock()
+
+	if requestLog != nil {
+		if err := requestLog.Sync(); err != nil {
+			return err
+		}
+	}
+	if writer != nil {
+		return writer.Close()
+	}
+	return nil
 }
 
 // initServiceLogger 初始化服务日志

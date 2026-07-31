@@ -2,12 +2,46 @@ package main
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestRedisOperationsReturnStableErrorWithoutClient(t *testing.T) {
+	resetRedisClient(t)
+
+	_, err := StoreShortURL(t.Context(), "key", "https://example.com", time.Hour)
+	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
+
+	_, err = LoadLongURL(t.Context(), "key")
+	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
+}
+
+func TestCloseRedisClientIsSafeDuringConcurrentCalls(t *testing.T) {
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
+
+	var group sync.WaitGroup
+	for range 32 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			assert.NoError(t, CloseRedisClient())
+		}()
+	}
+	group.Wait()
+
+	assert.Nil(t, GetRedisClient())
+	assert.True(t, errors.Is(func() error {
+		_, err := LoadLongURL(t.Context(), "key")
+		return err
+	}(), ErrRedisClientUnavailable))
+}
 
 func newTestRedisOptions(t testing.TB) *redis.Options {
 	t.Helper()
@@ -24,13 +58,18 @@ func newTestRedisOptions(t testing.TB) *redis.Options {
 func resetRedisClient(t testing.TB) {
 	t.Helper()
 
-	previous := RedisClient
-	RedisClient = nil
+	redisClientMu.Lock()
+	previous := redisClient
+	redisClient = nil
+	redisClientMu.Unlock()
 	t.Cleanup(func() {
-		if RedisClient != nil && RedisClient != previous {
-			_ = RedisClient.Close()
+		redisClientMu.Lock()
+		current := redisClient
+		redisClient = previous
+		redisClientMu.Unlock()
+		if current != nil && current != previous {
+			_ = current.Close()
 		}
-		RedisClient = previous
 	})
 }
 

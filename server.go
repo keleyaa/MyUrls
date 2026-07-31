@@ -19,6 +19,7 @@ type Dependencies struct {
 type HTTPServer struct {
 	*http.Server
 	ShutdownTimeout time.Duration
+	listenAndServe  func() error
 }
 
 // NewRouter builds the application's HTTP routes.
@@ -50,7 +51,7 @@ func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
 
 // NewHTTPServer builds an HTTP server with bounded connection lifetimes.
 func NewHTTPServer(cfg Config, handler http.Handler) *HTTPServer {
-	return &HTTPServer{
+	server := &HTTPServer{
 		Server: &http.Server{
 			Addr:              ":" + cfg.Port,
 			Handler:           handler,
@@ -61,6 +62,8 @@ func NewHTTPServer(cfg Config, handler http.Handler) *HTTPServer {
 		},
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}
+	server.listenAndServe = server.Server.ListenAndServe
+	return server
 }
 
 // Serve runs the server until it stops or the supplied context requests a
@@ -68,7 +71,7 @@ func NewHTTPServer(cfg Config, handler http.Handler) *HTTPServer {
 func (server *HTTPServer) Serve(ctx context.Context) error {
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- server.ListenAndServe()
+		serveErr <- server.listenAndServe()
 	}()
 
 	select {

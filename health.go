@@ -33,9 +33,13 @@ func HealthHandler(ping func(context.Context) error) gin.HandlerFunc {
 
 // RunHealthcheck checks the local health endpoint and returns success only for
 // an HTTP 200 response.
-func RunHealthcheck(port string) error {
+func RunHealthcheck(ctx context.Context, port string) error {
 	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Get("http://127.0.0.1:" + port + "/healthz")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/healthz", nil)
+	if err != nil {
+		return fmt.Errorf("create healthcheck request: %w", err)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("request healthcheck: %w", err)
 	}
