@@ -67,7 +67,8 @@ curl --fail-with-body http://localhost:8080/short \
   -H 'Content-Type: application/json' \
   -d '{"longUrl":"https://example.com/guide"}'
 
-curl --head http://localhost:8080/docs-demo
+test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  http://localhost:8080/docs-demo)" = 301
 ```
 
 兼容响应中的业务错误仍可能使用 HTTP 200；调用方必须同时检查响应 JSON 的 `Code`。

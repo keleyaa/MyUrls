@@ -149,13 +149,15 @@ curl --fail-with-body http://localhost:8080/short \
   -H "Authorization: Bearer ${MYURLS_API_TOKEN:-}" \
   -H 'Content-Type: application/json' \
   -d '{"longUrl":"https://example.com/upgrade-check","shortKey":"upgrade-check"}'
-curl --head http://localhost:8080/upgrade-check
+test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  http://localhost:8080/upgrade-check)" = 301
 
 # 3. 重启后再次确认持久化数据和健康状态
 docker compose restart myurls-redis myurls
 docker compose ps
 curl --fail --silent --show-error http://localhost:8080/healthz
-curl --head http://localhost:8080/upgrade-check
+test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  http://localhost:8080/upgrade-check)" = 301
 ```
 
 若 `CONFIG GET appendonly` 返回 `yes`，还要确认 Redis 日志无 AOF 截断或重放错误；无论
