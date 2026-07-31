@@ -68,6 +68,9 @@ func TestLongToShortHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			before, err := GetRedisClient().DBSize(t.Context()).Result()
+			require.NoError(t, err)
+
 			request := httptest.NewRequest(http.MethodPost, "/short", strings.NewReader(tt.body))
 			request.Header.Set("Content-Type", tt.contentType)
 			response := httptest.NewRecorder()
@@ -81,6 +84,12 @@ func TestLongToShortHandler(t *testing.T) {
 			require.NoError(t, json.NewDecoder(bytes.NewReader(response.Body.Bytes())).Decode(&payload))
 			assert.Equal(t, tt.wantCode, payload.Code)
 			assert.Equal(t, tt.wantShort, payload.ShortURL)
+
+			if tt.wantCode == ResponseCodeParamsCheckError {
+				after, err := GetRedisClient().DBSize(t.Context()).Result()
+				require.NoError(t, err)
+				assert.Equal(t, before, after)
+			}
 		})
 	}
 

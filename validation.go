@@ -64,7 +64,7 @@ func ValidateShortKey(key string) error {
 	if !shortKeyPattern.MatchString(key) {
 		return errInvalidShortKey
 	}
-	if _, reserved := reservedShortKeys[strings.ToLower(key)]; reserved {
+	if _, reserved := reservedShortKeys[key]; reserved {
 		return errInvalidShortKey
 	}
 	return nil

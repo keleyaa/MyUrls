@@ -38,7 +38,7 @@ func TestNormalizeLongURL(t *testing.T) {
 }
 
 func TestValidateShortKey(t *testing.T) {
-	valid := []string{"a", "A1_-", strings.Repeat("x", 64)}
+	valid := []string{"a", "A1_-", "HEALTHZ", strings.Repeat("x", 64)}
 	for _, value := range valid {
 		t.Run("valid "+value[:1], func(t *testing.T) {
 			require.NoError(t, ValidateShortKey(value))
