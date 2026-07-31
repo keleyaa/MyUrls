@@ -8,6 +8,8 @@ BINARY_ARM64="build/myurls-linux-arm64"
 VERSION=1.0.0
 BUILD=`date +%FT%T%z`
 
+.PHONY: test vet race verify
+
 default:
 	@echo ${BINARY_DEFAULT}
 	@CGO_ENABLED=0 go build -ldflags="-s -w" -o ${BINARY_DEFAULT}
@@ -45,6 +47,17 @@ install:
 
 fmt:
 	@go fmt ./...
+
+test:
+	@go test -count=1 ./...
+
+vet:
+	@go vet ./...
+
+race:
+	@go test -race -count=1 ./...
+
+verify: fmt vet test
 
 clean:
 	@if [ -f ${BINARY_DEFAULT} ] ; then rm ${BINARY_DEFAULT} ; fi
