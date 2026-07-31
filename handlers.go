@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -57,10 +56,17 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			return
 		}
 
-		// 兼容以前的实现，这里如果是 base64 编码的字符串，进行解码
-		_longUrl, err := base64.StdEncoding.DecodeString(req.LongUrl)
-		if err == nil {
-			req.LongUrl = string(_longUrl)
+		normalized, err := NormalizeLongURL(req.LongUrl)
+		if err != nil {
+			writeBusinessError(c, ResponseCodeParamsCheckError, "invalid long URL")
+			return
+		}
+		req.LongUrl = normalized
+		if req.ShortKey != "" {
+			if err := ValidateShortKey(req.ShortKey); err != nil {
+				writeBusinessError(c, ResponseCodeParamsCheckError, "invalid short key")
+				return
+			}
 		}
 
 		// generate short key
@@ -109,4 +115,8 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 		}
 		c.JSON(200, respDataLegacy)
 	}
+}
+
+func writeBusinessError(c *gin.Context, code int, message string) {
+	c.JSON(200, Response{Code: code, Msg: message})
 }
