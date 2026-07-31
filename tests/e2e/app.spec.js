@@ -49,6 +49,16 @@ test('默认单操作与前置校验', async ({ page }) => {
   await expect(page.locator('#copy-button')).toBeHidden()
   await expect(page.locator('#status')).toHaveText('粘贴链接后按回车，或点按箭头。')
 
+  await page.locator('#long-url').fill('ftp://example.com/file')
+  await page.locator('#long-url').press('Enter')
+
+  expect(requestCount).toBe(0)
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'invalid')
+  await expect(page.locator('#status')).toHaveText('请输入以 http:// 或 https:// 开头的有效链接。')
+  await expect(page.locator('#long-url')).toBeFocused()
+  await expect(page.locator('#copy-button')).toBeHidden()
+  await expect(page.locator('#short-url')).toBeEmpty()
+
   await page.locator('#long-url').fill('https://example.com/valid')
   await page.locator('#long-url').press('Enter')
   await expect(page.locator('#short-url')).toHaveText('https://sho.rt/unexpected')
