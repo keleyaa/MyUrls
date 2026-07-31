@@ -200,7 +200,6 @@ button {
 }
 
 #shorten-button:hover:not(:disabled) {
-  transform: scale(0.94);
   box-shadow: 0 0.45rem 1.1rem rgba(23, 105, 255, 0.2);
 }
 

@@ -75,6 +75,14 @@ func TestLuminousFocusStylesContract(t *testing.T) {
 	} {
 		assert.NotContains(t, styles, forbidden)
 	}
+
+	hoverRule := regexp.MustCompile(`(?s)#shorten-button:hover:not\(:disabled\)\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	require.Len(t, hoverRule, 2)
+	assert.NotContains(t, hoverRule[1], "transform: scale(0.94)")
+
+	activeRule := regexp.MustCompile(`(?s)#shorten-button:active:not\(:disabled\)\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	require.Len(t, activeRule, 2)
+	assert.Contains(t, activeRule[1], "transform: scale(0.94)")
 }
 
 func TestLuminousFocusDocumentContract(t *testing.T) {
