@@ -2,8 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -31,7 +32,9 @@ const (
 
 func InitLogger() {
 	// 创建 logs 目录
-	createLogPath()
+	if err := createLogPath(); err != nil {
+		panic("create log path failed: " + err.Error())
+	}
 
 	// 初始化 zap logger
 	initZapLogger()
@@ -53,21 +56,23 @@ func SyncLogger() error {
 
 // createLogPath 创建 logs 目录
 func createLogPath() error {
-	if dir, err := os.Getwd(); err == nil {
-		logFilePath := dir + "/logs/"
-		if err := os.MkdirAll(logFilePath, 0777); err != nil {
-			panic("create log path failed: " + err.Error())
-		}
+	logFilePath, err := getLogPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(logFilePath, 0o755); err != nil {
+		return fmt.Errorf("create log directory: %w", err)
 	}
 	return nil
 }
 
 // getLogPath 获取 logs 目录
-func getLogPath() string {
-	if dir, err := os.Getwd(); err == nil {
-		return dir + "/logs/"
+func getLogPath() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
 	}
-	return ""
+	return filepath.Join(dir, "logs"), nil
 }
 
 // 定义 zap logger
@@ -91,11 +96,14 @@ func initGinLogger() *zap.Logger {
 		return requestLogger
 	}
 
-	logPath := getLogPath()
+	logPath, err := getLogPath()
+	if err != nil {
+		panic("get log path failed: " + err.Error())
+	}
 	logFileName := "access.log"
 
 	// 日志文件
-	logFile := path.Join(logPath, logFileName)
+	logFile := filepath.Join(logPath, logFileName)
 
 	lumberJackLogger := &lumberjack.Logger{
 		Filename:   logFile,

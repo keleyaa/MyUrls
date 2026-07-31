@@ -1,0 +1,12 @@
+.git
+.github
+.env
+build
+data/redis
+logs
+*.log
+docs
+tests
+node_modules
+.idea
+dist

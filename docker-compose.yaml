@@ -1,23 +1,46 @@
-version: "3"
 services:
   myurls:
     build: .
-    container_name: myurls
-    restart: always
-    env_file: .env
+    restart: unless-stopped
+    environment:
+      MYURLS_PORT: ${MYURLS_PORT:-8080}
+      MYURLS_DOMAIN: ${MYURLS_DOMAIN:-example.com}
+      MYURLS_PROTO: ${MYURLS_PROTO:-https}
+      MYURLS_REDIS_CONN: ${MYURLS_REDIS_CONN:-myurls-redis:6379}
+      MYURLS_REDIS_PASSWORD: ${MYURLS_REDIS_PASSWORD:-}
+      MYURLS_API_TOKEN: ${MYURLS_API_TOKEN:-}
+      MYURLS_RATE_LIMIT_RPS: ${MYURLS_RATE_LIMIT_RPS:-5}
+      MYURLS_RATE_LIMIT_BURST: ${MYURLS_RATE_LIMIT_BURST:-10}
+      MYURLS_MAX_BODY_BYTES: ${MYURLS_MAX_BODY_BYTES:-16384}
+      MYURLS_READ_HEADER_TIMEOUT: ${MYURLS_READ_HEADER_TIMEOUT:-5s}
+      MYURLS_READ_TIMEOUT: ${MYURLS_READ_TIMEOUT:-10s}
+      MYURLS_WRITE_TIMEOUT: ${MYURLS_WRITE_TIMEOUT:-10s}
+      MYURLS_IDLE_TIMEOUT: ${MYURLS_IDLE_TIMEOUT:-60s}
+      MYURLS_SHUTDOWN_TIMEOUT: ${MYURLS_SHUTDOWN_TIMEOUT:-10s}
     ports:
-      - "${MYURLS_PORT}:${MYURLS_PORT}"
+      - "${MYURLS_PORT:-8080}:${MYURLS_PORT:-8080}"
     volumes:
-      - ./data/myurls/logs:/app/logs      
+      - myurls-logs:/app/logs
     depends_on:
-      - myurls-redis
-    entrypoint: ["/app/myurls", "-domain", "${MYURLS_DOMAIN}", "-conn", myurls-redis:6379]
+      myurls-redis:
+        condition: service_healthy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   myurls-redis:
-    image: "redis:7"
-    container_name: myurls-redis
-    restart: always
+    image: redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236
+    restart: unless-stopped
     volumes:
-      - ./data/redis:/data
-    expose:
-      - "6379"
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  myurls-logs:
+  redis-data:
