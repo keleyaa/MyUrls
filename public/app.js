@@ -30,6 +30,7 @@ async function createShortURL(longUrl, shortKey) {
 }
 
 function copyWithTemporaryTextarea(value) {
+  const previousActiveElement = document.activeElement
   const textarea = document.createElement('textarea')
   textarea.value = value
   textarea.readOnly = true
@@ -49,6 +50,9 @@ function copyWithTemporaryTextarea(value) {
     }
   } finally {
     textarea.remove()
+    if (previousActiveElement instanceof HTMLElement && previousActiveElement.isConnected) {
+      previousActiveElement.focus({ preventScroll: true })
+    }
   }
 }
 
@@ -86,6 +90,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const shortenButton = document.querySelector('#shorten-button')
   const copyButton = document.querySelector('#copy-button')
   const status = document.querySelector('#status')
+  let resultVersion = 0
+
+  form.noValidate = true
 
   function setStatus(message, state) {
     form.dataset.state = state
@@ -100,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function clearResult() {
+    resultVersion += 1
     shortURL.replaceChildren()
     copyButton.hidden = true
     copyButton.disabled = true
@@ -129,6 +137,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!shortKeyInput.checkValidity()) {
       clearResult()
       setStatus(invalidKeyMessage, 'invalid')
+      const details = shortKeyInput.closest('details')
+      if (details) {
+        details.open = true
+      }
       shortKeyInput.focus()
       shortKeyInput.reportValidity()
       return
@@ -167,11 +179,18 @@ document.addEventListener('DOMContentLoaded', () => {
       clearResult()
       return
     }
+    const version = resultVersion
 
     try {
       await copyText(value)
+      if (version !== resultVersion || shortURL.textContent !== value) {
+        return
+      }
       setStatus(copiedAgainMessage, 'success')
     } catch {
+      if (version !== resultVersion || shortURL.textContent !== value) {
+        return
+      }
       setStatus(copyAgainFailedMessage, 'copy-error')
     }
   })

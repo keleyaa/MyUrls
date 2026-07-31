@@ -49,13 +49,35 @@ test('默认单操作与前置校验', async ({ page }) => {
   await expect(page.locator('#copy-button')).toBeHidden()
   await expect(page.locator('#status')).toHaveText('粘贴链接后按回车，或点按箭头。')
 
-  await page.locator('#long-url').fill('ftp://example.com/file')
+  await page.locator('#long-url').fill('https://example.com/valid')
+  await page.locator('#long-url').press('Enter')
+  await expect(page.locator('#short-url')).toHaveText('https://sho.rt/unexpected')
+  await expect(page.locator('#copy-button')).toBeVisible()
+  expect(requestCount).toBe(1)
+
+  await page.locator('#long-url').fill('not a url')
   await page.locator('#long-url').press('Enter')
 
+  await expect.soft(page.locator('#copy-button')).toBeHidden()
+  await expect.soft(page.locator('#short-url')).toBeEmpty()
+  await expect.soft(page.locator('#status')).toHaveAttribute('data-state', 'invalid')
+  await expect.soft(page.locator('#status')).toHaveText('请输入以 http:// 或 https:// 开头的有效链接。')
+  await expect.soft(page.locator('#long-url')).toBeFocused()
+  expect.soft(requestCount).toBe(1)
+
+  await page.locator('details.custom-key > summary').click()
+  await page.locator('#short-key').fill('bad key!')
+  await page.locator('details.custom-key > summary').click()
+  await page.locator('#long-url').fill('https://example.com/valid-again')
+  await page.locator('#long-url').press('Enter')
+
+  expect(requestCount).toBe(1)
+  await expect(page.locator('#copy-button')).toBeHidden()
+  await expect(page.locator('#short-url')).toBeEmpty()
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'invalid')
-  await expect(page.locator('#status')).toHaveText('请输入以 http:// 或 https:// 开头的有效链接。')
-  await expect(page.locator('#long-url')).toBeFocused()
-  expect(requestCount).toBe(0)
+  await expect(page.locator('#status')).toHaveText('自定义短码只能使用 1–64 位字母、数字、下划线或连字符。')
+  await expect(page.locator('details.custom-key')).toHaveAttribute('open', '')
+  await expect(page.locator('#short-key')).toBeFocused()
 
   const repoLink = page.getByRole('link', { name: '在 GitHub 打开 keleyaa/MyUrls 仓库' })
   await expect(repoLink).toHaveAttribute('href', 'https://github.com/keleyaa/MyUrls')
@@ -63,16 +85,60 @@ test('默认单操作与前置校验', async ({ page }) => {
 })
 
 test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__clipboardMode = 'success'
+    window.__clipboardText = ''
+    window.__execCommandCount = 0
+    Object.defineProperty(Navigator.prototype, 'clipboard', {
+      configurable: true,
+      get() {
+        return {
+          writeText(value) {
+            if (window.__clipboardMode === 'pending') {
+              return new Promise((resolve, reject) => {
+                window.__pendingCopy = { resolve, reject, value }
+              })
+            }
+            if (window.__clipboardMode === 'reject') {
+              return Promise.reject(new Error('clipboard denied'))
+            }
+            window.__clipboardText = value
+            return Promise.resolve()
+          },
+          readText() {
+            return Promise.resolve(window.__clipboardText)
+          },
+        }
+      },
+    })
+    Object.defineProperty(Document.prototype, 'execCommand', {
+      configurable: true,
+      value() {
+        window.__execCommandCount += 1
+        return false
+      },
+    })
+  })
   const requestObserved = deferred()
   const releaseRequest = deferred()
+  let requestCount = 0
+  let requestContract
   await page.route('**/short', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.continue()
       return
     }
 
-    requestObserved.resolve()
-    await releaseRequest.promise
+    requestCount += 1
+    if (requestCount === 1) {
+      const request = route.request()
+      requestContract = {
+        contentType: request.headers()['content-type'],
+        postData: request.postData(),
+      }
+      requestObserved.resolve()
+      await releaseRequest.promise
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -87,6 +153,11 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
   await page.locator('#long-url').press('Enter')
 
   await requestObserved.promise
+  expect(requestContract.contentType).toContain('multipart/form-data; boundary=')
+  expect(requestContract.postData).toContain('name="longUrl"')
+  expect(requestContract.postData).toContain('https://example.com/long/path')
+  expect(requestContract.postData).toContain('name="shortKey"')
+  expect(requestContract.postData).toContain('luminous')
   await expect(page.locator('#shorten-button')).toBeDisabled()
   await expect(page.locator('#shorten-form')).toHaveAttribute('aria-busy', 'true')
   await expect(page.locator('#shorten-form')).toHaveAttribute('data-state', 'loading')
@@ -103,6 +174,25 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
   await page.locator('#copy-button').click()
   await expect(page.locator('#status')).toHaveText('短链接已复制。')
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://sho.rt/luminous')
+
+  await page.evaluate(() => {
+    window.__clipboardMode = 'pending'
+  })
+  await page.locator('#copy-button').click()
+  await expect.poll(() => page.evaluate(() => Boolean(window.__pendingCopy))).toBe(true)
+
+  await page.evaluate(() => {
+    window.__clipboardMode = 'success'
+  })
+  await page.locator('#long-url').press('Enter')
+  await expect(page.locator('#status')).toHaveText('已生成并自动复制。')
+  expect(requestCount).toBe(2)
+
+  await page.evaluate(() => {
+    window.__pendingCopy.reject(new Error('old copy failed'))
+  })
+  await expect.poll(() => page.evaluate(() => window.__execCommandCount)).toBe(1)
+  await expect(page.locator('#status')).toHaveText('已生成并自动复制。')
 })
 
 test('业务错误脱敏与旧结果清除', async ({ page }) => {
@@ -146,7 +236,11 @@ test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保
     window.__copyShouldSucceed = false
     Object.defineProperty(Navigator.prototype, 'clipboard', {
       configurable: true,
-      get: () => undefined,
+      get() {
+        return {
+          writeText: () => Promise.reject(new Error('clipboard denied')),
+        }
+      },
     })
     Object.defineProperty(Document.prototype, 'execCommand', {
       configurable: true,
@@ -178,6 +272,7 @@ test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保
   await expect(page.locator('#status')).toHaveText('已生成，请手动复制。')
   await expect(page.locator('#copy-button')).toBeVisible()
   await expect(page.locator('#short-url')).toHaveText('https://sho.rt/fallback')
+  await expect(page.locator('#long-url')).toBeFocused()
   expect(await page.evaluate(() => window.__copyFallback)).toEqual({
     command: 'copy',
     tagName: 'TEXTAREA',
@@ -191,4 +286,5 @@ test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保
   })
   await page.locator('#copy-button').click()
   await expect(page.locator('#status')).toHaveText('短链接已复制。')
+  await expect(page.locator('#copy-button')).toBeFocused()
 })

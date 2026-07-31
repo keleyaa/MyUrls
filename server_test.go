@@ -210,6 +210,11 @@ func TestLuminousFocusClientScriptContract(t *testing.T) {
 		"request-error",
 		"copy-error",
 		"aria-busy",
+		"form.novalidate = true",
+		"let resultversion = 0",
+		"document.activeelement",
+		"isconnected",
+		"focus({ preventscroll: true })",
 	} {
 		assert.Contains(t, script, required)
 	}
