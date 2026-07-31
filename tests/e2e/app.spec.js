@@ -12,6 +12,24 @@ function projectSlug(projectName) {
   return projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
+function contrastRatio(foreground, background) {
+  const luminance = (color) => {
+    const channels = color.match(/[\d.]+/g).slice(0, 3).map((channel) => Number(channel) / 255)
+    const linear = channels.map((channel) => (
+      channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4
+    ))
+    return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2])
+  }
+
+  const foregroundLuminance = luminance(foreground)
+  const backgroundLuminance = luminance(background)
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance)
+  const darker = Math.min(foregroundLuminance, backgroundLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
 const browserErrors = new WeakMap()
 
 test.beforeEach(async ({ page }) => {
@@ -177,6 +195,9 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }, testInfo)
   await expect(page.locator('#shorten-form')).toHaveAttribute('aria-busy', 'true')
   await expect(page.locator('#shorten-form')).toHaveAttribute('data-state', 'loading')
   await expect(page.locator('#status')).toHaveText('正在生成短链接…')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.spinner')).toBeVisible()
+  await expect.soft(page.locator('.spinner')).toHaveCSS('animation-name', 'none')
 
   releaseRequest.resolve()
 
@@ -328,15 +349,73 @@ test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保
 
 test('匹配项目主题且可见控件位于视口内', async ({ page }, testInfo) => {
   await page.goto('/')
-  await page.locator('details.custom-key > summary').click()
+  const customKey = page.locator('details.custom-key')
+  const summary = page.locator('details.custom-key > summary')
+  await summary.click()
 
   const expectedDark = testInfo.project.name.endsWith('Dark')
   await expect.poll(() => page.evaluate(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   )).toBe(expectedDark)
 
+  await page.locator('#long-url').focus()
+  await expect.poll(() => page.locator('.url-composer').evaluate(
+    (composer) => window.getComputedStyle(composer).boxShadow,
+  )).toContain('0px 0px 0px 4px')
+  const longUrlFocus = await page.evaluate(() => {
+    const input = window.getComputedStyle(document.querySelector('#long-url'))
+    return {
+      outlineStyle: input.outlineStyle,
+    }
+  })
+  expect.soft(longUrlFocus.outlineStyle).toBe('none')
+
+  await page.locator('#short-key').focus()
+  await expect(page.locator('#short-key')).toHaveCSS('outline-style', 'solid')
+
+  const buttonColors = async () => page.locator('#shorten-button').evaluate((button) => {
+    const style = window.getComputedStyle(button)
+    return { foreground: style.color, background: style.backgroundColor }
+  })
+  const defaultButtonColors = await buttonColors()
+  expect.soft(
+    contrastRatio(defaultButtonColors.foreground, defaultButtonColors.background),
+    `${testInfo.project.name} action contrast`,
+  ).toBeGreaterThanOrEqual(3)
+
+  const summaryTransition = await summary.evaluate((element) => {
+    const style = window.getComputedStyle(element)
+    return {
+      property: style.transitionProperty,
+      duration: style.transitionDuration,
+      height: element.getBoundingClientRect().height,
+    }
+  })
+  expect.soft(summaryTransition.property).toContain('transform')
+  expect.soft(summaryTransition.duration).toContain('0.11s')
+  expect.soft(summaryTransition.height).toBeGreaterThanOrEqual(44)
+
+  const summaryBox = await summary.boundingBox()
+  await page.mouse.move(summaryBox.x + (summaryBox.width / 2), summaryBox.y + (summaryBox.height / 2))
+  await page.mouse.down()
+  await page.waitForTimeout(120)
+  const summaryPressedScale = await summary.evaluate((element) => {
+    const transform = window.getComputedStyle(element).transform
+    return transform === 'none' ? 1 : new DOMMatrix(transform).a
+  })
+  expect.soft(summaryPressedScale).toBeLessThan(0.995)
+  await page.mouse.up()
+  if (!(await customKey.evaluate((details) => details.open))) {
+    await summary.click()
+  }
+  await expect(customKey).toHaveAttribute('open', '')
+
   const layout = await page.evaluate(() => {
     const root = document.documentElement
+    const wordmarkText = document.querySelector('.wordmark')?.firstChild
+    const wordmarkTextRange = document.createRange()
+    wordmarkTextRange.selectNodeContents(wordmarkText)
+    const wordmarkTextRect = wordmarkTextRange.getBoundingClientRect()
     const controls = Array.from(document.querySelectorAll('a, button, input, summary'))
       .map((element) => {
         const style = window.getComputedStyle(element)
@@ -367,12 +446,19 @@ test('匹配项目主题且可见控件位于视口内', async ({ page }, testIn
       innerWidth: window.innerWidth,
       scrollWidth: root.scrollWidth,
       scrollHeight: root.scrollHeight,
+      wordmarkTextCenter: (wordmarkTextRect.left + wordmarkTextRect.right) / 2,
+      viewportCenter: window.innerWidth / 2,
       controls,
       shortenButton: controls.find((control) => control.id === 'shorten-button'),
     }
   })
 
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth)
+  expect.soft(layout.controls.map((control) => control.id)).toContain('short-key')
+  expect.soft(
+    Math.abs(layout.wordmarkTextCenter - layout.viewportCenter),
+    `${testInfo.project.name} MyUrls text-node optical center`,
+  ).toBeLessThanOrEqual(1)
   for (const control of layout.controls) {
     expect(control.left, `${control.tagName}#${control.id}`).toBeGreaterThanOrEqual(0)
     expect(control.top, `${control.tagName}#${control.id}`).toBeGreaterThanOrEqual(0)
@@ -393,4 +479,21 @@ test('匹配项目主题且可见控件位于视口内', async ({ page }, testIn
   }
   expect(layout.shortenButton?.width).toBeGreaterThanOrEqual(44)
   expect(layout.shortenButton?.height).toBeGreaterThanOrEqual(44)
+
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [
+      { name: 'prefers-color-scheme', value: expectedDark ? 'dark' : 'light' },
+      { name: 'prefers-contrast', value: 'more' },
+    ],
+  })
+  await expect.poll(() => page.evaluate(
+    () => window.matchMedia('(prefers-contrast: more)').matches,
+  )).toBe(true)
+  const contrastMoreButtonColors = await buttonColors()
+  expect.soft(
+    contrastRatio(contrastMoreButtonColors.foreground, contrastMoreButtonColors.background),
+    `${testInfo.project.name} contrast-more action contrast`,
+  ).toBeGreaterThanOrEqual(3)
+  await cdp.detach()
 })
