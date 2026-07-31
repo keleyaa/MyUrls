@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +20,24 @@ import (
 
 func recordLifecycleEvent(sequence *atomic.Int64) int64 {
 	return sequence.Add(1)
+}
+
+func TestManropeFontIsServedLocally(t *testing.T) {
+	router := NewRouter(defaultConfig(), Dependencies{
+		Ping: func(context.Context) error { return nil },
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(
+		http.MethodGet,
+		"/fonts/manrope-latin-wght-normal.woff2",
+		nil,
+	))
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Header().Get("Content-Type"), "font/woff2")
+	assert.True(t, strings.HasPrefix(response.Body.String(), "wOF2"))
+	license, err := os.ReadFile("public/fonts/OFL.txt")
+	require.NoError(t, err)
+	assert.Contains(t, string(license), "SIL OPEN FONT LICENSE Version 1.1")
 }
 
 func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
