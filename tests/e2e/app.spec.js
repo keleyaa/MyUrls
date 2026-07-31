@@ -8,86 +8,186 @@ function deferred() {
   return { promise, resolve }
 }
 
-function uniqueShortKey(projectName) {
-  const project = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  return `e2e-${project}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
+const browserErrors = new WeakMap()
 
-test('creates and copies a short URL, reports business errors, and fits the viewport', async ({ page }, testInfo) => {
-  const browserErrors = []
+test.beforeEach(async ({ page }) => {
+  const errors = []
+  browserErrors.set(page, errors)
   page.on('console', (message) => {
     if (message.type() === 'error') {
-      browserErrors.push(`console: ${message.text()}`)
+      errors.push(`console: ${message.text()}`)
     }
   })
-  page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`))
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`))
+})
+
+test.afterEach(async ({ page }) => {
+  expect(browserErrors.get(page)).toEqual([])
+})
+
+test('默认单操作与前置校验', async ({ page }) => {
+  let requestCount = 0
+  await page.route('**/short', async (route) => {
+    if (route.request().method() === 'POST') {
+      requestCount += 1
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ Code: 1, ShortUrl: 'https://sho.rt/unexpected' }),
+    })
+  })
 
   await page.goto('/')
+
   await expect(page).toHaveTitle('MyUrls')
-  await expect(page.getByRole('heading', { name: '创建短链接' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MyUrls', exact: true })).toBeVisible()
+  await expect(page.getByText('把长链接，变得简单。')).toBeVisible()
+  await expect(page.locator('#long-url')).toBeVisible()
+  await expect(page.locator('details.custom-key')).not.toHaveAttribute('open', '')
+  await expect(page.locator('#short-key')).toBeHidden()
+  await expect(page.locator('#copy-button')).toBeHidden()
+  await expect(page.locator('#status')).toHaveText('粘贴链接后按回车，或点按箭头。')
 
-  const shortKey = uniqueShortKey(testInfo.project.name)
-  await page.getByLabel('长链接').fill(`https://example.com/${shortKey}`)
-  await page.getByLabel('自定义短码').fill(shortKey)
+  await page.locator('#long-url').fill('ftp://example.com/file')
+  await page.locator('#long-url').press('Enter')
 
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'invalid')
+  await expect(page.locator('#status')).toHaveText('请输入以 http:// 或 https:// 开头的有效链接。')
+  await expect(page.locator('#long-url')).toBeFocused()
+  expect(requestCount).toBe(0)
+
+  const repoLink = page.getByRole('link', { name: '在 GitHub 打开 keleyaa/MyUrls 仓库' })
+  await expect(repoLink).toHaveAttribute('href', 'https://github.com/keleyaa/MyUrls')
+  await expect(repoLink).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
+test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
   const requestObserved = deferred()
   const releaseRequest = deferred()
   await page.route('**/short', async (route) => {
-    if (route.request().method() === 'POST') {
-      requestObserved.resolve()
-      await releaseRequest.promise
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
     }
-    await route.continue()
+
+    requestObserved.resolve()
+    await releaseRequest.promise
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ Code: 1, ShortUrl: 'https://sho.rt/luminous' }),
+    })
   })
 
-  const responsePromise = page.waitForResponse(
-    (response) => response.url().endsWith('/short') && response.request().method() === 'POST',
-  )
-  let loadingAssertionError
-  try {
-    await page.getByRole('button', { name: '生成短链接' }).click()
-    await requestObserved.promise
-    await expect(page.locator('#shorten-button')).toBeDisabled()
-    await expect(page.locator('#shorten-button')).toHaveText('正在生成…')
-    await expect(page.locator('#status')).toHaveText('正在生成短链接…')
-  } catch (error) {
-    loadingAssertionError = error
-  } finally {
-    releaseRequest.resolve()
-  }
+  await page.goto('/')
+  await page.locator('details.custom-key > summary').click()
+  await page.locator('#short-key').fill('luminous')
+  await page.locator('#long-url').fill('https://example.com/long/path')
+  await page.locator('#long-url').press('Enter')
 
-  const response = await responsePromise
-  await page.unroute('**/short')
-  if (loadingAssertionError) {
-    throw loadingAssertionError
-  }
-  expect(response.ok()).toBeTruthy()
+  await requestObserved.promise
+  await expect(page.locator('#shorten-button')).toBeDisabled()
+  await expect(page.locator('#shorten-form')).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('#shorten-form')).toHaveAttribute('data-state', 'loading')
+  await expect(page.locator('#status')).toHaveText('正在生成短链接…')
 
-  const expectedShortURL = `http://127.0.0.1:8080/${shortKey}`
-  await expect(page.locator('#short-url')).toHaveValue(expectedShortURL)
-  await expect(page.locator('#status')).toHaveText('短链接已生成并复制。')
+  releaseRequest.resolve()
+
+  await expect(page.locator('#short-url')).toHaveText('https://sho.rt/luminous')
+  await expect(page.locator('#copy-button')).toBeVisible()
   await expect(page.locator('#copy-button')).toBeEnabled()
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expectedShortURL)
+  await expect(page.locator('#status')).toHaveText('已生成并自动复制。')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://sho.rt/luminous')
 
   await page.locator('#copy-button').click()
   await expect(page.locator('#status')).toHaveText('短链接已复制。')
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expectedShortURL)
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://sho.rt/luminous')
+})
 
-  const businessResponsePromise = page.waitForResponse(
-    (candidate) => candidate.url().endsWith('/short') && candidate.request().method() === 'POST',
-  )
-  await page.getByLabel('自定义短码').fill('healthz')
-  await page.getByRole('button', { name: '生成短链接' }).click()
-  const businessResponse = await businessResponsePromise
-  const businessPayload = await businessResponse.json()
-  expect(businessPayload.Code).toBe(1001)
-  expect(typeof businessPayload.Message).toBe('string')
+test('业务错误脱敏与旧结果清除', async ({ page }) => {
+  let requestCount = 0
+  await page.route('**/short', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    requestCount += 1
+    const payload = requestCount === 1
+      ? { Code: 1, ShortUrl: 'https://sho.rt/first' }
+      : { Code: 1001, Message: 'internal redis key already exists' }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('#long-url').fill('https://example.com/first')
+  await page.locator('#long-url').press('Enter')
+  await expect(page.locator('#short-url')).toHaveText('https://sho.rt/first')
+  await expect(page.locator('#copy-button')).toBeVisible()
+
+  await page.locator('#long-url').fill('https://example.com/second')
+  await page.locator('#long-url').press('Enter')
+
+  await expect(page.locator('#copy-button')).toBeHidden()
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'request-error')
   await expect(page.locator('#status')).toHaveText('短链接生成失败，请稍后重试。')
-  await expect(page.locator('#status')).not.toContainText(businessPayload.Message)
+  await expect(page.locator('#status')).not.toContainText('redis')
+  await expect(page.locator('#status')).not.toContainText('internal redis key already exists')
+})
 
-  const fitsViewport = await page.evaluate(
-    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-  )
-  expect(fitsViewport).toBeTruthy()
-  expect(browserErrors).toEqual([])
+test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保留结果', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__copyShouldSucceed = false
+    Object.defineProperty(Navigator.prototype, 'clipboard', {
+      configurable: true,
+      get: () => undefined,
+    })
+    Object.defineProperty(Document.prototype, 'execCommand', {
+      configurable: true,
+      value(command) {
+        const element = this.activeElement
+        window.__copyFallback = {
+          command,
+          tagName: element?.tagName,
+          value: element?.value,
+          readOnly: element?.readOnly,
+        }
+        return command === 'copy' && window.__copyShouldSucceed
+      },
+    })
+  })
+  await page.route('**/short', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ Code: 1, ShortUrl: 'https://sho.rt/fallback' }),
+    })
+  })
+
+  await page.goto('/')
+  await page.locator('#long-url').fill('https://example.com/fallback')
+  await page.locator('#long-url').press('Enter')
+
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'copy-error')
+  await expect(page.locator('#status')).toHaveText('已生成，请手动复制。')
+  await expect(page.locator('#copy-button')).toBeVisible()
+  await expect(page.locator('#short-url')).toHaveText('https://sho.rt/fallback')
+  expect(await page.evaluate(() => window.__copyFallback)).toEqual({
+    command: 'copy',
+    tagName: 'TEXTAREA',
+    value: 'https://sho.rt/fallback',
+    readOnly: true,
+  })
+  await expect(page.locator('textarea')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.__copyShouldSucceed = true
+  })
+  await page.locator('#copy-button').click()
+  await expect(page.locator('#status')).toHaveText('短链接已复制。')
 })

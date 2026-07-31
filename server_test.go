@@ -191,6 +191,38 @@ func TestLuminousFocusDocumentContract(t *testing.T) {
 	assert.False(t, routes[http.MethodGet+" /logo.png"])
 }
 
+func TestLuminousFocusClientScriptContract(t *testing.T) {
+	router := NewRouter(defaultConfig(), Dependencies{
+		Ping: func(context.Context) error { return nil },
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/app.js", nil))
+
+	require.Equal(t, http.StatusOK, response.Code)
+	script := strings.ToLower(response.Body.String())
+	for _, required := range []string{
+		"new formdata()",
+		"fetch('/short'",
+		"navigator.clipboard",
+		"document.createtextnode",
+		"document.createelement('textarea')",
+		"document.execcommand('copy')",
+		"request-error",
+		"copy-error",
+		"aria-busy",
+	} {
+		assert.Contains(t, script, required)
+	}
+	for _, forbidden := range []string{
+		"btoa(",
+		"unpkg.com",
+		"jsdelivr.net",
+		"api.github.com",
+	} {
+		assert.NotContains(t, script, forbidden)
+	}
+}
+
 func TestNewHTTPServerConfiguresAddressAndTimeouts(t *testing.T) {
 	cfg := Config{
 		Port:              "9123",

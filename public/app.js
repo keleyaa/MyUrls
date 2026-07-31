@@ -1,7 +1,13 @@
 'use strict'
 
-const requestErrorMessage = '短链接生成失败，请稍后重试。'
 const invalidURLMessage = '请输入以 http:// 或 https:// 开头的有效链接。'
+const invalidKeyMessage = '自定义短码只能使用 1–64 位字母、数字、下划线或连字符。'
+const loadingMessage = '正在生成短链接…'
+const requestErrorMessage = '短链接生成失败，请稍后重试。'
+const copiedAutomaticallyMessage = '已生成并自动复制。'
+const copyAfterCreateFailedMessage = '已生成，请手动复制。'
+const copiedAgainMessage = '短链接已复制。'
+const copyAgainFailedMessage = '复制失败，请手动选择并复制。'
 
 async function createShortURL(longUrl, shortKey) {
   const data = new FormData()
@@ -23,22 +29,40 @@ async function createShortURL(longUrl, shortKey) {
   return payload.ShortUrl
 }
 
+function copyWithTemporaryTextarea(value) {
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.readOnly = true
+  textarea.tabIndex = -1
+  textarea.setAttribute('aria-hidden', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.insetInlineStart = '-9999px'
+  textarea.style.insetBlockStart = '0'
+  document.body.append(textarea)
+
+  try {
+    textarea.focus()
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length)
+    if (!document.execCommand('copy')) {
+      throw new Error('copy failed')
+    }
+  } finally {
+    textarea.remove()
+  }
+}
+
 async function copyText(value) {
   if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(value)
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Continue with the local fallback when the Clipboard API is denied.
+    }
   }
 
-  const input = document.querySelector('#short-url')
-  if (!input || input.value !== value) {
-    throw new Error('copy failed')
-  }
-
-  input.focus()
-  input.select()
-  input.setSelectionRange(0, input.value.length)
-  if (!document.execCommand('copy')) {
-    throw new Error('copy failed')
-  }
+  copyWithTemporaryTextarea(value)
 }
 
 function isValidHTTPURL(value) {
@@ -58,25 +82,37 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.querySelector('#shorten-form')
   const longURLInput = document.querySelector('#long-url')
   const shortKeyInput = document.querySelector('#short-key')
-  const shortURLInput = document.querySelector('#short-url')
+  const shortURL = document.querySelector('#short-url')
   const shortenButton = document.querySelector('#shorten-button')
   const copyButton = document.querySelector('#copy-button')
   const status = document.querySelector('#status')
-  const repoLogo = document.querySelector('#repo-logo')
 
-  function setStatus(message, state = '') {
+  function setStatus(message, state) {
+    form.dataset.state = state
+    status.dataset.state = state
     status.textContent = message
-    if (state) {
-      status.dataset.state = state
-    } else {
-      delete status.dataset.state
-    }
   }
 
   function setBusy(isBusy) {
     shortenButton.disabled = isBusy
-    shortenButton.textContent = isBusy ? '正在生成…' : '生成短链接'
+    shortenButton.setAttribute('aria-label', isBusy ? '正在生成短链接' : '生成短链接')
     form.setAttribute('aria-busy', String(isBusy))
+  }
+
+  function clearResult() {
+    shortURL.replaceChildren()
+    copyButton.hidden = true
+    copyButton.disabled = true
+    copyButton.removeAttribute('aria-label')
+    copyButton.removeAttribute('title')
+  }
+
+  function showResult(value) {
+    shortURL.replaceChildren(document.createTextNode(value))
+    copyButton.hidden = false
+    copyButton.disabled = false
+    copyButton.setAttribute('aria-label', `复制短链接 ${value}`)
+    copyButton.title = value
   }
 
   form.addEventListener('submit', async (event) => {
@@ -84,57 +120,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const longUrl = longURLInput.value
     if (!isValidHTTPURL(longUrl)) {
-      setStatus(invalidURLMessage, 'error')
+      clearResult()
+      setStatus(invalidURLMessage, 'invalid')
       longURLInput.focus()
       return
     }
-    if (!form.checkValidity()) {
-      form.reportValidity()
+
+    if (!shortKeyInput.checkValidity()) {
+      clearResult()
+      setStatus(invalidKeyMessage, 'invalid')
+      shortKeyInput.focus()
+      shortKeyInput.reportValidity()
       return
     }
 
-    shortURLInput.value = ''
-    copyButton.disabled = true
+    clearResult()
     setBusy(true)
-    setStatus('正在生成短链接…')
+    setStatus(loadingMessage, 'loading')
 
     try {
-      const shortURL = await createShortURL(longUrl, shortKeyInput.value)
-      shortURLInput.value = shortURL
-
+      const value = await createShortURL(longUrl, shortKeyInput.value)
+      let copiedAutomatically = true
       try {
-        await copyText(shortURL)
-        setStatus('短链接已生成并复制。', 'success')
+        await copyText(value)
       } catch {
-        setStatus('短链接已生成，请手动复制。', 'success')
-      } finally {
-        copyButton.disabled = false
+        copiedAutomatically = false
+      }
+
+      showResult(value)
+      if (copiedAutomatically) {
+        setStatus(copiedAutomaticallyMessage, 'success')
+      } else {
+        setStatus(copyAfterCreateFailedMessage, 'copy-error')
       }
     } catch {
-      setStatus(requestErrorMessage, 'error')
+      clearResult()
+      setStatus(requestErrorMessage, 'request-error')
     } finally {
       setBusy(false)
     }
   })
 
   copyButton.addEventListener('click', async () => {
-    const value = shortURLInput.value
+    const value = shortURL.textContent
     if (!value) {
-      copyButton.disabled = true
+      clearResult()
       return
     }
 
     try {
       await copyText(value)
-      setStatus('短链接已复制。', 'success')
+      setStatus(copiedAgainMessage, 'success')
     } catch {
-      setStatus('复制失败，请手动选择并复制。', 'error')
-    }
-  })
-
-  repoLogo.addEventListener('click', (event) => {
-    if (!repoLogo.href.startsWith('https://github.com/')) {
-      event.preventDefault()
+      setStatus(copyAgainFailedMessage, 'copy-error')
     }
   })
 })
