@@ -384,7 +384,8 @@ Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢
         mv "$REDIS8_DATA_HOLD" "$MYURLS_REDIS_DATA_PATH"
       fi
     }
-    trap 'restore_hold' EXIT HUP INT TERM
+    trap 'restore_hold' EXIT
+    trap 'trap - EXIT HUP INT TERM; restore_hold; exit 1' HUP INT TERM
     mv "$MYURLS_REDIS_DATA_PATH" "$REDIS8_DATA_HOLD"
     moved_to_hold=true
     mv "$REDIS7_STAGING" "$MYURLS_REDIS_DATA_PATH"
