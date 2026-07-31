@@ -134,6 +134,7 @@ test('业务错误脱敏与旧结果清除', async ({ page }) => {
   await page.locator('#long-url').press('Enter')
 
   await expect(page.locator('#copy-button')).toBeHidden()
+  await expect(page.locator('#short-url')).toBeEmpty()
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'request-error')
   await expect(page.locator('#status')).toHaveText('短链接生成失败，请稍后重试。')
   await expect(page.locator('#status')).not.toContainText('redis')
