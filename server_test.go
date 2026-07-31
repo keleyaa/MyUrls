@@ -93,9 +93,17 @@ func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
 	assert.Contains(t, appScript, "fetch('/short'")
 	assert.Contains(t, appScript, "navigator.clipboard")
 	assert.Contains(t, appScript, "document.execcommand('copy')")
+	automaticCopyIndex := strings.Index(appScript, "await copytext(shorturl)")
+	enableManualCopyIndex := strings.Index(appScript, "copybutton.disabled = false")
+	require.NotEqual(t, -1, automaticCopyIndex)
+	require.NotEqual(t, -1, enableManualCopyIndex)
+	assert.Less(t, automaticCopyIndex, enableManualCopyIndex)
+	assert.Contains(t, appScript, "} finally {\n        copybutton.disabled = false\n      }")
 
 	styles := strings.ToLower(responses["/styles.css"])
 	assert.Contains(t, styles, "width: min(42rem, calc(100% - 2rem))")
+	assert.Contains(t, styles, "outline: 3px solid #2456a6")
+	assert.NotContains(t, styles, "#79a9f5")
 	for _, forbidden := range []string{"@import", "@font-face", "linear-gradient", "radial-gradient", "vw;", "url(http"} {
 		assert.NotContains(t, styles, forbidden)
 	}

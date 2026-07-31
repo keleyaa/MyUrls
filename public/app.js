@@ -101,13 +101,14 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const shortURL = await createShortURL(longUrl, shortKeyInput.value)
       shortURLInput.value = shortURL
-      copyButton.disabled = false
 
       try {
         await copyText(shortURL)
         setStatus('短链接已生成并复制。', 'success')
       } catch {
         setStatus('短链接已生成，请手动复制。', 'success')
+      } finally {
+        copyButton.disabled = false
       }
     } catch {
       setStatus(requestErrorMessage, 'error')
