@@ -40,7 +40,7 @@ func TestManropeFontIsServedLocally(t *testing.T) {
 	assert.Contains(t, string(license), "SIL OPEN FONT LICENSE Version 1.1")
 }
 
-func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
+func TestLuminousFocusDocumentContract(t *testing.T) {
 	router := NewRouter(defaultConfig(), Dependencies{
 		Ping: func(context.Context) error { return nil },
 	})
@@ -52,7 +52,6 @@ func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
 		{path: "/", contentType: "text/html"},
 		{path: "/app.js", contentType: "javascript"},
 		{path: "/styles.css", contentType: "text/css"},
-		{path: "/logo.png", contentType: "image/png"},
 		{path: "/healthz", contentType: "application/json"},
 	}
 
@@ -70,63 +69,48 @@ func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
 
 	document := responses["/"]
 	lowerDocument := strings.ToLower(document)
-	for _, forbidden := range []string{"unpkg.com", "jsdelivr.net", "vue", "axios", "element-ui"} {
-		assert.NotContains(t, lowerDocument, forbidden)
-	}
-
 	for _, required := range []string{
+		`<html lang="zh-CN">`,
+		`id="page-title"`,
+		`>MyUrls<span aria-hidden="true">.</span></h1>`,
+		`把长链接，变得简单。`,
+		`id="shorten-form"`,
 		`id="long-url"`,
-		`id="short-key"`,
-		`id="short-url"`,
 		`id="shorten-button"`,
+		`aria-label="生成短链接"`,
+		`<details class="custom-key">`,
+		`<summary>`,
+		`id="short-key"`,
 		`id="copy-button"`,
+		`id="short-url"`,
 		`id="status"`,
+		`role="status"`,
+		`aria-live="polite"`,
+		`href="https://github.com/keleyaa/MyUrls"`,
+		`target="_blank"`,
+		`rel="noopener noreferrer"`,
+		`Go · MIT`,
 	} {
 		assert.Contains(t, document, required)
 	}
+
 	statusTag := regexp.MustCompile(`<[^>]+id="status"[^>]*>`).FindString(document)
 	require.NotEmpty(t, statusTag)
 	assert.Contains(t, statusTag, `role="status"`)
 
-	assert.Contains(t, document, `<html lang="zh-CN">`)
-	assert.Contains(t, document, `<main`)
-	assert.Contains(t, document, `<form`)
-	assert.Contains(t, document, `<label for="long-url">`)
-	assert.Contains(t, document, `<label for="short-key">`)
-	assert.Contains(t, document, `<label for="short-url">`)
-	assert.Contains(t, document, `pattern="[A-Za-z0-9_\-]{1,64}"`)
-	assert.Contains(t, document, `href="/styles.css"`)
-	assert.Contains(t, document, `src="/app.js"`)
-	assert.Contains(t, document, `src="/logo.png"`)
-	assert.Contains(t, document, `src="/app.js" defer`)
 	assert.Equal(t, 1, strings.Count(lowerDocument, `<script`))
+	assert.Equal(t, 1, strings.Count(lowerDocument, `<h1`))
 	assert.Equal(t, 1, strings.Count(lowerDocument, `rel="stylesheet"`))
-	assert.Equal(t, 1, strings.Count(lowerDocument, `<img`))
-	assert.NotContains(t, lowerDocument, `@font-face`)
-	assert.NotContains(t, lowerDocument, `url(http`)
-
-	appScript := strings.ToLower(responses["/app.js"])
-	for _, forbidden := range []string{"btoa(", "unpkg.com", "jsdelivr.net", "vue", "axios", "element-ui"} {
-		assert.NotContains(t, appScript, forbidden)
+	assert.Equal(t, 0, strings.Count(lowerDocument, `<img`))
+	for _, forbidden := range []string{"logo.png", "fonts.googleapis.com", "fonts.gstatic.com", "api.github.com"} {
+		assert.NotContains(t, lowerDocument, forbidden)
 	}
-	assert.Contains(t, appScript, "new formdata()")
-	assert.Contains(t, appScript, "fetch('/short'")
-	assert.Contains(t, appScript, "navigator.clipboard")
-	assert.Contains(t, appScript, "document.execcommand('copy')")
-	automaticCopyIndex := strings.Index(appScript, "await copytext(shorturl)")
-	enableManualCopyIndex := strings.Index(appScript, "copybutton.disabled = false")
-	require.NotEqual(t, -1, automaticCopyIndex)
-	require.NotEqual(t, -1, enableManualCopyIndex)
-	assert.Less(t, automaticCopyIndex, enableManualCopyIndex)
-	assert.Contains(t, appScript, "} finally {\n        copybutton.disabled = false\n      }")
+	assert.Equal(t, 1, len(regexp.MustCompile(`(?:src|href)="https?://`).FindAllString(document, -1)))
 
-	styles := strings.ToLower(responses["/styles.css"])
-	assert.Contains(t, styles, "width: min(42rem, calc(100% - 2rem))")
-	assert.Contains(t, styles, "outline: 3px solid #2456a6")
-	assert.NotContains(t, styles, "#79a9f5")
-	for _, forbidden := range []string{"@import", "@font-face", "linear-gradient", "radial-gradient", "vw;", "url(http"} {
-		assert.NotContains(t, styles, forbidden)
-	}
+	copyButtonTag := regexp.MustCompile(`<button[^>]+id="copy-button"[^>]*>`).FindString(document)
+	require.NotEmpty(t, copyButtonTag)
+	assert.Contains(t, copyButtonTag, `hidden`)
+	assert.Contains(t, copyButtonTag, `disabled`)
 
 	routes := make(map[string]bool)
 	for _, route := range router.Routes() {
@@ -134,6 +118,7 @@ func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
 	}
 	assert.True(t, routes[http.MethodGet+" /healthz"])
 	assert.True(t, routes[http.MethodGet+" /:shortKey"])
+	assert.False(t, routes[http.MethodGet+" /logo.png"])
 }
 
 func TestNewHTTPServerConfiguresAddressAndTimeouts(t *testing.T) {

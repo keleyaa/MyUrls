@@ -3,29 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f7ff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080b14" media="(prefers-color-scheme: dark)">
   <title>MyUrls</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <div class="ambient-light" aria-hidden="true"></div>
   <main class="app-shell">
-    <section class="tool-card" aria-labelledby="page-title">
-      <a
-        id="repo-logo"
-        class="repo-logo"
-        href="https://github.com/keleyaa/MyUrls"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="打开 MyUrls GitHub 仓库"
-      >
-        <img src="/logo.png" width="300" height="90" alt="MyUrls">
-      </a>
+    <header class="brand">
+      <h1 id="page-title" class="wordmark">MyUrls<span aria-hidden="true">.</span></h1>
+      <p>把长链接，变得简单。</p>
+    </header>
 
-      <h1 id="page-title">创建短链接</h1>
-      <p class="intro">输入一个 HTTP 或 HTTPS 链接，可选择自定义短码。</p>
-
-      <form id="shorten-form" action="/short" method="post">
-        <div class="field">
-          <label for="long-url">长链接</label>
+    <section class="tool-surface" aria-labelledby="tool-title">
+      <h2 id="tool-title" class="sr-only">创建短链接</h2>
+      <form id="shorten-form" action="/short" method="post" aria-busy="false" data-state="idle">
+        <div class="url-composer">
+          <label class="sr-only" for="long-url">长链接</label>
           <input
             id="long-url"
             name="longUrl"
@@ -34,36 +29,67 @@
             autocomplete="url"
             placeholder="https://example.com/path"
             required
+            aria-describedby="status"
           >
+          <button id="shorten-button" type="submit" aria-label="生成短链接">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+              <path d="M5 12h13M13 6l6 6-6 6"></path>
+            </svg>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
         </div>
 
-        <div class="field">
-          <label for="short-key">自定义短码 <span>（可选）</span></label>
-          <input
-            id="short-key"
-            name="shortKey"
-            type="text"
-            inputmode="text"
-            autocomplete="off"
-            maxlength="64"
-            pattern="[A-Za-z0-9_\-]{1,64}"
-            placeholder="例如 docs_2026"
-          >
-        </div>
-
-        <button id="shorten-button" class="primary-button" type="submit">生成短链接</button>
-
-        <div class="field result-field">
-          <label for="short-url">短链接</label>
-          <div class="result-row">
-            <input id="short-url" type="url" readonly aria-describedby="status">
-            <button id="copy-button" class="secondary-button" type="button" disabled>复制</button>
+        <details class="custom-key">
+          <summary>自定义短码 <span>可选</span></summary>
+          <div class="custom-key-content">
+            <label for="short-key">自定义短码</label>
+            <input
+              id="short-key"
+              name="shortKey"
+              type="text"
+              autocomplete="off"
+              maxlength="64"
+              pattern="[A-Za-z0-9_\-]{1,64}"
+              aria-describedby="short-key-help"
+              placeholder="例如 docs_2026"
+            >
+            <p id="short-key-help">1–64 位，仅限字母、数字、下划线和连字符。</p>
           </div>
-        </div>
+        </details>
 
-        <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <button id="copy-button" class="result-surface" type="button" aria-describedby="status" hidden disabled>
+          <span class="result-copy">
+            <span class="result-label">短链接</span>
+            <span id="short-url"></span>
+          </span>
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+          </svg>
+        </button>
+
+        <p id="status" role="status" aria-live="polite" aria-atomic="true" data-state="idle">粘贴链接后按回车，或点按箭头。</p>
       </form>
     </section>
+
+    <footer class="project-footer">
+      <a
+        id="repo-logo"
+        href="https://github.com/keleyaa/MyUrls"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="在 GitHub 打开 keleyaa/MyUrls 仓库"
+      >
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.168 6.839 9.49.5.092.683-.217.683-.482 0-.237-.009-1.022-.013-1.855-2.782.604-3.369-1.18-3.369-1.18-.455-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.004.071 1.532 1.031 1.532 1.031.892 1.529 2.341 1.087 2.91.831.091-.646.349-1.087.635-1.337-2.221-.253-4.555-1.111-4.555-4.944 0-1.092.39-1.984 1.03-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.563 9.563 0 0 1 12 6.756a9.58 9.58 0 0 1 2.504.337c1.909-1.294 2.748-1.025 2.748-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.591 1.028 2.683 0 3.842-2.338 4.688-4.566 4.936.359.309.678.915.678 1.845 0 1.334-.012 2.41-.012 2.739 0 .267.18.578.688.48A10.002 10.002 0 0 0 22 12c0-5.523-4.477-10-10-10Z"></path>
+        </svg>
+        <span>
+          <strong>keleyaa/MyUrls</strong>
+          <small>Go · MIT</small>
+        </span>
+        <span class="external-arrow" aria-hidden="true">↗</span>
+      </a>
+    </footer>
   </main>
 
   <script src="/app.js" defer></script>

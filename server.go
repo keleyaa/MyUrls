@@ -29,7 +29,6 @@ func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
 	router.Use(initServiceLogger())
 
 	router.LoadHTMLGlob("public/*.html")
-	router.StaticFile("/logo.png", "public/logo.png")
 	router.StaticFile(
 		"/fonts/manrope-latin-wght-normal.woff2",
 		"public/fonts/manrope-latin-wght-normal.woff2",
