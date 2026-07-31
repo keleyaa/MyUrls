@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -23,10 +24,12 @@ func TestAuthMiddleware(t *testing.T) {
 		authorization string
 		wantStatus    int
 		wantCode      int
+		wantChallenge string
 	}{
 		{name: "empty token allows requests", wantStatus: http.StatusNoContent},
-		{name: "missing bearer token is unauthorized", token: "secret", wantStatus: http.StatusUnauthorized, wantCode: ResponseCodeUnauthorized},
-		{name: "wrong bearer token is unauthorized", token: "secret", authorization: "Bearer wrong", wantStatus: http.StatusUnauthorized, wantCode: ResponseCodeUnauthorized},
+		{name: "missing bearer token is unauthorized", token: "secret", wantStatus: http.StatusUnauthorized, wantCode: ResponseCodeUnauthorized, wantChallenge: `Bearer realm="MyUrls"`},
+		{name: "wrong bearer token is unauthorized", token: "secret", authorization: "Bearer wrong", wantStatus: http.StatusUnauthorized, wantCode: ResponseCodeUnauthorized, wantChallenge: `Bearer realm="MyUrls", error="invalid_token"`},
+		{name: "different length token is unauthorized", token: "secret", authorization: "Bearer much-longer-wrong-token", wantStatus: http.StatusUnauthorized, wantCode: ResponseCodeUnauthorized, wantChallenge: `Bearer realm="MyUrls", error="invalid_token"`},
 		{name: "correct bearer token allows request", token: "secret", authorization: "Bearer secret", wantStatus: http.StatusNoContent},
 	}
 
@@ -44,6 +47,7 @@ func TestAuthMiddleware(t *testing.T) {
 			router.ServeHTTP(response, request)
 
 			assert.Equal(t, tt.wantStatus, response.Code)
+			assert.Equal(t, tt.wantChallenge, response.Header().Get("WWW-Authenticate"))
 			if tt.wantCode != 0 {
 				var payload Response
 				require.NoError(t, json.NewDecoder(response.Body).Decode(&payload))
@@ -66,9 +70,9 @@ func TestRateLimitMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, response.Code)
 	})
 
-	t.Run("second immediate request is rate limited", func(t *testing.T) {
+	t.Run("second request is rate limited without replenishment", func(t *testing.T) {
 		router := gin.New()
-		router.Use(RateLimitMiddleware(rate.NewLimiter(1, 1)))
+		router.Use(RateLimitMiddleware(rate.NewLimiter(0, 1)))
 		router.GET("/", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 		first := httptest.NewRecorder()
@@ -87,11 +91,58 @@ func TestRateLimitMiddleware(t *testing.T) {
 func TestBodyLimitMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	InitLogger()
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
 
-	router := NewRouter(Config{MaxBodyBytes: 16}, Dependencies{})
+	cfg := defaultConfig()
+	cfg.MaxBodyBytes = 64
+	router := NewRouter(cfg, Dependencies{})
+	validJSON := `{"longUrl":"https://example.com/long"}`
 
-	request := httptest.NewRequest(http.MethodPost, "/short", strings.NewReader(`{"longUrl":"https://example.com/long"}`))
-	request.Header.Set("Content-Type", "application/json")
+	tests := []struct {
+		name          string
+		body          string
+		unknownLength bool
+	}{
+		{name: "valid JSON followed by whitespace", body: validJSON + strings.Repeat(" ", 1024)},
+		{name: "valid JSON followed by a second JSON value", body: validJSON + validJSON + strings.Repeat(" ", 1024)},
+		{name: "chunked request with unknown content length", body: validJSON + strings.Repeat(" ", 1024), unknownLength: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/short", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			if tt.unknownLength {
+				request.ContentLength = -1
+				request.TransferEncoding = []string{"chunked"}
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusOK, response.Code)
+			var payload Response
+			require.NoError(t, json.NewDecoder(bytes.NewReader(response.Body.Bytes())).Decode(&payload))
+			assert.Equal(t, ResponseCodeParamsCheckError, payload.Code)
+
+			size, err := GetRedisClient().DBSize(t.Context()).Result()
+			require.NoError(t, err)
+			assert.Zero(t, size)
+		})
+	}
+}
+
+func TestBodyLimitMiddlewareReadsCompleteBodyBeforeCallingHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(BodyLimitMiddleware(64))
+	router.POST("/", func(c *gin.Context) {
+		buffer := make([]byte, 1)
+		_, _ = c.Request.Body.Read(buffer)
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"longUrl":"https://example.com/long"}`+strings.Repeat(" ", 1024)))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 
@@ -99,4 +150,25 @@ func TestBodyLimitMiddleware(t *testing.T) {
 	var payload Response
 	require.NoError(t, json.NewDecoder(bytes.NewReader(response.Body.Bytes())).Decode(&payload))
 	assert.Equal(t, ResponseCodeParamsCheckError, payload.Code)
+}
+
+func TestBodyLimitMiddlewarePreservesFormRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	InitLogger()
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
+
+	cfg := defaultConfig()
+	cfg.MaxBodyBytes = 64
+	router := NewRouter(cfg, Dependencies{})
+	body := url.Values{"longUrl": {"https://e.co"}, "shortKey": {"form"}}.Encode()
+	request := httptest.NewRequest(http.MethodPost, "/short", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var payload struct{ Code int }
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&payload))
+	assert.Equal(t, ResponseCodeSuccessLegacy, payload.Code)
 }
