@@ -5,7 +5,7 @@
 备份路径替换为实际值。
 
 命令前提：POSIX shell、Docker、Docker Compose v2、`curl`、`jq`、`tar`、`openssl`、
-`awk`、`grep`、`find`、`mv`。`jq` 用于精确验证兼容响应；`tar` 与 `openssl` 用于完整归档和 SHA-256
+`awk`、`grep`、`find`、`mv`、`mktemp`、`cmp`、`rm`。`jq` 用于精确验证兼容响应；`tar` 与 `openssl` 用于完整归档和 SHA-256
 校验。所有启动命令均有 120 秒 readiness 上限，不使用固定 sleep；若失败，应停止后续
 步骤并检查 `docker compose ps --all` 与相关服务日志。
 
@@ -89,7 +89,9 @@ docker compose exec myurls-redis sh -ec '
 以下冷备份流程适用于当前 bind mount。它在任何停止操作前确认数据源就是 Compose
 实际挂载的 `/data` 源；随后停止应用并确认非 running，在 Redis 仍运行时同步执行
 `SAVE`、记录版本及 RDB/AOF 配置，最后以 60 秒上限停止 Redis 并确认非 running。
-整个数据目录会被归档，因此 RDB、AOF 和 `appendonlydir` 都会保留。
+仅非 running 不足以证明干净停机：应用与 Redis 还必须是退出码 0、未被 OOM kill 且
+没有 runtime error。整个数据目录会被归档，因此 RDB、AOF 和 `appendonlydir` 都会
+保留；checksum 必须严格等于按固定文件顺序重新生成的两行 canonical 清单。
 
 ```sh
 (
@@ -100,7 +102,7 @@ docker compose exec myurls-redis sh -ec '
   export MYURLS_REDIS_DATA_PATH BACKUP_DIR
   (
     set -eu
-    for tool in docker jq tar openssl awk grep; do command -v "$tool" >/dev/null; done
+    for tool in docker jq tar openssl awk grep mktemp cmp rm; do command -v "$tool" >/dev/null; done
     test -d "$MYURLS_REDIS_DATA_PATH"
     test ! -e "$BACKUP_DIR"
 
@@ -119,6 +121,9 @@ docker compose exec myurls-redis sh -ec '
     app_id="$(docker compose ps --all --quiet myurls)"
     test -n "$app_id"
     test "$(docker inspect --format '{{.State.Running}}' "$app_id")" = false
+    test "$(docker inspect --format '{{.State.ExitCode}}' "$app_id")" = 0
+    test "$(docker inspect --format '{{.State.OOMKilled}}' "$app_id")" = false
+    test -z "$(docker inspect --format '{{.State.Error}}' "$app_id")"
 
     docker compose exec -T myurls-redis sh -eu -c '
       if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
@@ -135,17 +140,32 @@ docker compose exec myurls-redis sh -ec '
     redis_id="$(docker compose ps --all --quiet myurls-redis)"
     test -n "$redis_id"
     test "$(docker inspect --format '{{.State.Running}}' "$redis_id")" = false
+    test "$(docker inspect --format '{{.State.ExitCode}}' "$redis_id")" = 0
+    test "$(docker inspect --format '{{.State.OOMKilled}}' "$redis_id")" = false
+    test -z "$(docker inspect --format '{{.State.Error}}' "$redis_id")"
 
     tar -C "$MYURLS_REDIS_DATA_PATH" -cpf "$BACKUP_DIR/redis-data.tar" .
     (
       set -eu
       cd "$BACKUP_DIR"
       openssl dgst -sha256 -r redis-manifest.env redis-data.tar > SHA256SUMS
-      while read -r expected file; do
-        file="${file#\*}"
-        actual="$(openssl dgst -sha256 -r "$file" | awk '{print $1}')"
-        test "$actual" = "$expected"
-      done < SHA256SUMS
+      checksum_actual="$(mktemp "${TMPDIR:-/tmp}/myurls-checksum.XXXXXX")"
+      trap 'rm -f "$checksum_actual"' EXIT
+      trap 'trap - EXIT HUP INT TERM; rm -f "$checksum_actual"; exit 1' HUP INT TERM
+      openssl dgst -sha256 -r redis-manifest.env redis-data.tar > "$checksum_actual"
+      cmp -s SHA256SUMS "$checksum_actual"
+      awk '
+        NR == 1 {
+          if (length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 != "*redis-manifest.env") exit 1
+        }
+        NR == 2 {
+          if (length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 != "*redis-data.tar") exit 1
+        }
+        NR > 2 { exit 1 }
+        END { if (NR != 2) exit 1 }
+      ' SHA256SUMS
+      rm -f "$checksum_actual"
+      trap - EXIT HUP INT TERM
     )
   )
   backup_status=$?
@@ -190,17 +210,17 @@ Redis 镜像 digest，并定期做恢复演练。
 
 ## Redis 7→8 升级
 
-本节命令应在同一个 shell 中执行，以保留 `PRE7_KEY`。先在 Redis 7
-仍运行时创建唯一的升级前短码，并精确确认兼容响应和跳转。这里的时间戳加 PID 只包含
-短码允许的字符。
+先在 Redis 7 仍运行时创建唯一的升级前短码，并精确确认兼容响应和跳转。
+`openssl rand -hex 8` 生成 8 字节随机后缀，输出只包含短码允许的十六进制字符。记录
+第一块打印的 `pre7_key=`，在后续占位符中使用同一个值。
 
 ```sh
-export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
-
 (
   set +e
   (
     set -eu
+    PRE7_KEY="pre7-$(openssl rand -hex 8)"
+    printf '%s\n' "$PRE7_KEY" | grep -Eq '^pre7-[0-9a-f]{16}$'
     redis_version="$(docker compose exec -T myurls-redis sh -eu -c '
       if [ -n "$MYURLS_REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$MYURLS_REDIS_PASSWORD"; fi
       redis-cli --raw INFO server | sed -n "s/^redis_version://p" | tr -d "\r"
@@ -217,6 +237,7 @@ export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
       jq -e '.Code == 1 and (.ShortUrl | type == "string" and length > 0)' >/dev/null
     test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
       "http://localhost:8080/${PRE7_KEY}")" = 301
+    printf 'pre7_key=%s\n' "$PRE7_KEY"
   )
   block_status=$?
   if [ "$block_status" -ne 0 ]; then
@@ -228,7 +249,7 @@ export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
 ```
 
 接着按“备份”章节执行完整冷备份，记录其 `cold_backup=` 输出且不要执行普通备份的
-重启块。把下面 `BACKUP_DIR` 占位符替换成该路径，并确认 manifest 包含
+重启块。把下面 `PRE7_KEY` 和 `BACKUP_DIR` 占位符替换成记录的值，并确认 manifest 包含
 `redis_major=7`。将 `docker-compose.yaml` 中 Redis 镜像改为经验证的 Redis 8 版本和
 固定 digest 后，只启动 Redis 并等待健康；确认升级前旧短码数据存在后才启动应用：
 
@@ -237,7 +258,9 @@ export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
   set +e
   (
     set -eu
+    PRE7_KEY='<pre7_key 输出值>'
     BACKUP_DIR='./backups/<成功冷备份目录>'
+    printf '%s\n' "$PRE7_KEY" | grep -Eq '^pre7-[0-9a-f]{16}$'
     grep -qx 'redis_major=7' "$BACKUP_DIR/redis-manifest.env"
     docker compose pull myurls-redis
     docker compose up -d --wait --wait-timeout 120 myurls-redis
@@ -271,12 +294,14 @@ export PRE7_KEY="pre7-$(date +%Y%m%d%H%M%S)-$$"
 ## 验证
 
 ```sh
-export UPGRADE_KEY="upgrade-$(date +%Y%m%d%H%M%S)-$$"
-
 (
   set +e
   (
     set -eu
+    PRE7_KEY='<pre7_key 输出值>'
+    printf '%s\n' "$PRE7_KEY" | grep -Eq '^pre7-[0-9a-f]{16}$'
+    UPGRADE_KEY="upgrade-$(openssl rand -hex 8)"
+    printf '%s\n' "$UPGRADE_KEY" | grep -Eq '^upgrade-[0-9a-f]{16}$'
     docker compose ps
     curl --fail --silent --show-error http://localhost:8080/healthz
     docker compose exec -T myurls-redis sh -eu -c '
@@ -324,6 +349,8 @@ Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢
 备份，绝不能让 Redis 7 复用或打开 Redis 8 已写入的数据目录；升级后的新增数据需要先
 通过独立、经过验证的迁移流程处理，不能直接复制持久化文件。先把 Compose Redis 镜像
 改回已记录的 Redis 7 固定 digest；以下流程会确认目标镜像标签和备份 manifest 都是 7。
+即使配置路径以 `/` 结尾，也会先与 Compose mount source 核对并规范为绝对无尾斜杠
+路径，之后才派生同父目录的 hold 和 staging。
 
 ```sh
 (
@@ -332,13 +359,20 @@ Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢
     set -eu
     MYURLS_REDIS_DATA_PATH="${MYURLS_REDIS_DATA_PATH:-./data/redis}"
     PRE_UPGRADE_BACKUP='./backups/<Redis-7-成功冷备份目录>'
+    export MYURLS_REDIS_DATA_PATH
+
+    for tool in docker jq tar openssl awk grep find mv mktemp cmp rm; do command -v "$tool" >/dev/null; done
+    test -d "$MYURLS_REDIS_DATA_PATH"
+    data_source="$(cd "$MYURLS_REDIS_DATA_PATH" && pwd -P)"
+    compose_source="$(docker compose config --format json |
+      jq -er '.services["myurls-redis"].volumes[] | select(.target == "/data") | .source')"
+    test "$data_source" = "$compose_source"
+    MYURLS_REDIS_DATA_PATH="$data_source"
+    export MYURLS_REDIS_DATA_PATH
+
     stamp="$(date +%Y%m%d-%H%M%S)"
     REDIS8_DATA_HOLD="${MYURLS_REDIS_DATA_PATH}.redis8-hold-${stamp}"
     REDIS7_STAGING="${MYURLS_REDIS_DATA_PATH}.redis7-staging-${stamp}"
-    export MYURLS_REDIS_DATA_PATH
-
-    for tool in docker jq tar openssl awk grep find mv; do command -v "$tool" >/dev/null; done
-    test -d "$MYURLS_REDIS_DATA_PATH"
     test -d "$PRE_UPGRADE_BACKUP"
     test -f "$PRE_UPGRADE_BACKUP/redis-manifest.env"
     test -f "$PRE_UPGRADE_BACKUP/redis-data.tar"
@@ -348,19 +382,26 @@ Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢
     grep -qx 'redis_major=7' "$PRE_UPGRADE_BACKUP/redis-manifest.env"
     docker compose config --images | grep -Eq '^redis:7(\.|$)'
 
-    data_source="$(cd "$MYURLS_REDIS_DATA_PATH" && pwd -P)"
-    compose_source="$(docker compose config --format json |
-      jq -er '.services["myurls-redis"].volumes[] | select(.target == "/data") | .source')"
-    test "$data_source" = "$compose_source"
-
     (
       set -eu
       cd "$PRE_UPGRADE_BACKUP"
-      while read -r expected file; do
-        file="${file#\*}"
-        actual="$(openssl dgst -sha256 -r "$file" | awk '{print $1}')"
-        test "$actual" = "$expected"
-      done < SHA256SUMS
+      checksum_actual="$(mktemp "${TMPDIR:-/tmp}/myurls-checksum.XXXXXX")"
+      trap 'rm -f "$checksum_actual"' EXIT
+      trap 'trap - EXIT HUP INT TERM; rm -f "$checksum_actual"; exit 1' HUP INT TERM
+      openssl dgst -sha256 -r redis-manifest.env redis-data.tar > "$checksum_actual"
+      cmp -s SHA256SUMS "$checksum_actual"
+      awk '
+        NR == 1 {
+          if (length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 != "*redis-manifest.env") exit 1
+        }
+        NR == 2 {
+          if (length($1) != 64 || $1 ~ /[^0-9a-f]/ || $2 != "*redis-data.tar") exit 1
+        }
+        NR > 2 { exit 1 }
+        END { if (NR != 2) exit 1 }
+      ' SHA256SUMS
+      rm -f "$checksum_actual"
+      trap - EXIT HUP INT TERM
       if tar -tf redis-data.tar | grep -Eq '(^/|(^|/)\.\.(/|$))'; then false; fi
     )
     mkdir "$REDIS7_STAGING"
@@ -372,10 +413,16 @@ Redis 7 不保证能够读取 Redis 8 写出的持久化文件。回滚必须恢
     app_id="$(docker compose ps --all --quiet myurls)"
     test -n "$app_id"
     test "$(docker inspect --format '{{.State.Running}}' "$app_id")" = false
+    test "$(docker inspect --format '{{.State.ExitCode}}' "$app_id")" = 0
+    test "$(docker inspect --format '{{.State.OOMKilled}}' "$app_id")" = false
+    test -z "$(docker inspect --format '{{.State.Error}}' "$app_id")"
     docker compose stop --timeout 60 myurls-redis
     redis_id="$(docker compose ps --all --quiet myurls-redis)"
     test -n "$redis_id"
     test "$(docker inspect --format '{{.State.Running}}' "$redis_id")" = false
+    test "$(docker inspect --format '{{.State.ExitCode}}' "$redis_id")" = 0
+    test "$(docker inspect --format '{{.State.OOMKilled}}' "$redis_id")" = false
+    test -z "$(docker inspect --format '{{.State.Error}}' "$redis_id")"
 
     moved_to_hold=false
     restore_hold() {

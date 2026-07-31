@@ -70,19 +70,24 @@ go run . -conn localhost:6379 -proto http -domain localhost:8080 -port 8080
 表单请求与 JSON 请求均受支持：
 
 ```sh
-# application/x-www-form-urlencoded
-SHORT_KEY="docs-$(date +%Y%m%d%H%M%S)-$$"
-curl --fail-with-body http://localhost:8080/short \
-  --data-urlencode 'longUrl=https://example.com/docs' \
-  --data-urlencode "shortKey=${SHORT_KEY}"
+(
+  set -eu
+  # application/x-www-form-urlencoded
+  command -v openssl >/dev/null
+  SHORT_KEY="docs-$(openssl rand -hex 8)"
+  printf '%s\n' "$SHORT_KEY" | grep -Eq '^docs-[0-9a-f]{16}$'
+  curl --fail-with-body http://localhost:8080/short \
+    --data-urlencode 'longUrl=https://example.com/docs' \
+    --data-urlencode "shortKey=${SHORT_KEY}"
 
-# application/json；省略 shortKey 时自动生成
-curl --fail-with-body http://localhost:8080/short \
-  -H 'Content-Type: application/json' \
-  -d '{"longUrl":"https://example.com/guide"}'
+  # application/json；省略 shortKey 时自动生成
+  curl --fail-with-body http://localhost:8080/short \
+    -H 'Content-Type: application/json' \
+    -d '{"longUrl":"https://example.com/guide"}'
 
-test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-  "http://localhost:8080/${SHORT_KEY}")" = 301
+  test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "http://localhost:8080/${SHORT_KEY}")" = 301
+)
 ```
 
 兼容响应中的业务错误仍可能使用 HTTP 200；调用方必须同时检查响应 JSON 的 `Code`。
