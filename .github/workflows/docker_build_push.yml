@@ -8,13 +8,22 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
+  verification:
+    name: Run full CI verification
+    permissions:
+      contents: read
+    uses: ./.github/workflows/go.yml
+
   publish:
     name: Build and publish multi-platform image
+    needs: verification
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,9 +47,30 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [[ "${EVENT_NAME}" == 'push' ]]; then
-            version_tag="${REF_NAME}"
+            candidate="${REF_NAME}"
           else
-            version_tag="manual-${RUN_NUMBER}"
+            candidate="manual-${RUN_NUMBER}"
+          fi
+
+          oci_tag_pattern='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+          if [[ "${candidate}" =~ ${oci_tag_pattern} ]]; then
+            version_tag="${candidate}"
+          else
+            digest="$(printf '%s' "${candidate}" | sha256sum | cut -c1-12)"
+            safe_prefix="$(printf '%s' "${candidate}" | LC_ALL=C sed -E 's/[^A-Za-z0-9_.-]+/-/g')"
+            if [[ ! "${safe_prefix}" =~ ^[A-Za-z0-9_] ]]; then
+              safe_prefix="v-${safe_prefix}"
+            fi
+
+            suffix="-${digest}"
+            prefix_limit=$((128 - ${#suffix}))
+            safe_prefix="${safe_prefix:0:${prefix_limit}}"
+            version_tag="${safe_prefix}${suffix}"
+          fi
+
+          if [[ ! "${version_tag}" =~ ${oci_tag_pattern} ]]; then
+            echo 'Failed to produce a valid OCI image tag.' >&2
+            exit 1
           fi
           printf 'version_tag=%s\n' "${version_tag}" >> "${GITHUB_OUTPUT}"
 
