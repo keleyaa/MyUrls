@@ -8,6 +8,10 @@ function deferred() {
   return { promise, resolve }
 }
 
+function projectSlug(projectName) {
+  return projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+}
+
 const browserErrors = new WeakMap()
 
 test.beforeEach(async ({ page }) => {
@@ -94,7 +98,7 @@ test('默认单操作与前置校验', async ({ page }) => {
   await expect(repoLink).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
-test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
+test('Enter提交/loading/自动复制/再次复制', async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     window.__clipboardMode = 'success'
     window.__clipboardText = ''
@@ -222,6 +226,10 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
   })
   await expect.poll(() => page.evaluate(() => window.__execCommandCount)).toBe(2)
   await expect(page.locator('#status')).toHaveText('短链接已复制。')
+  await page.screenshot({
+    path: testInfo.outputPath(`${projectSlug(testInfo.project.name)}-success.png`),
+    fullPage: true,
+  })
 })
 
 test('业务错误脱敏与旧结果清除', async ({ page }) => {
@@ -316,4 +324,73 @@ test('Clipboard不可用时textarea fallback，两条复制路径都失败仍保
   await page.locator('#copy-button').click()
   await expect(page.locator('#status')).toHaveText('短链接已复制。')
   await expect(page.locator('#copy-button')).toBeFocused()
+})
+
+test('匹配项目主题且可见控件位于视口内', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await page.locator('details.custom-key > summary').click()
+
+  const expectedDark = testInfo.project.name.endsWith('Dark')
+  await expect.poll(() => page.evaluate(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )).toBe(expectedDark)
+
+  const layout = await page.evaluate(() => {
+    const root = document.documentElement
+    const controls = Array.from(document.querySelectorAll('a, button, input, summary'))
+      .map((element) => {
+        const style = window.getComputedStyle(element)
+        const rect = element.getBoundingClientRect()
+        return {
+          tagName: element.tagName,
+          id: element.id,
+          text: element.textContent?.trim(),
+          display: style.display,
+          visibility: style.visibility,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        }
+      })
+      .filter((control) => (
+        control.display !== 'none'
+        && control.visibility !== 'hidden'
+        && control.width > 0
+        && control.height > 0
+      ))
+
+    return {
+      clientWidth: root.clientWidth,
+      innerWidth: window.innerWidth,
+      scrollWidth: root.scrollWidth,
+      scrollHeight: root.scrollHeight,
+      controls,
+      shortenButton: controls.find((control) => control.id === 'shorten-button'),
+    }
+  })
+
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth)
+  for (const control of layout.controls) {
+    expect(control.left, `${control.tagName}#${control.id}`).toBeGreaterThanOrEqual(0)
+    expect(control.top, `${control.tagName}#${control.id}`).toBeGreaterThanOrEqual(0)
+    expect(control.right, `${control.tagName}#${control.id}`).toBeLessThanOrEqual(layout.innerWidth)
+    expect(control.bottom, `${control.tagName}#${control.id}`).toBeLessThanOrEqual(layout.scrollHeight)
+  }
+  for (let index = 0; index < layout.controls.length; index += 1) {
+    const control = layout.controls[index]
+    for (const other of layout.controls.slice(index + 1)) {
+      const overlaps = (
+        control.left < other.right
+        && control.right > other.left
+        && control.top < other.bottom
+        && control.bottom > other.top
+      )
+      expect(overlaps, `${control.tagName}#${control.id} overlaps ${other.tagName}#${other.id}`).toBe(false)
+    }
+  }
+  expect(layout.shortenButton?.width).toBeGreaterThanOrEqual(44)
+  expect(layout.shortenButton?.height).toBeGreaterThanOrEqual(44)
 })

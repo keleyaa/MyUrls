@@ -21,17 +21,37 @@ module.exports = defineConfig({
   },
   projects: [
     {
-      name: 'Desktop Chromium',
+      name: 'Desktop Light',
       use: {
         browserName: 'chromium',
         viewport: { width: 1440, height: 900 },
+        colorScheme: 'light',
       },
     },
     {
-      name: 'Mobile Chromium',
+      name: 'Desktop Dark',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 1440, height: 900 },
+        colorScheme: 'dark',
+      },
+    },
+    {
+      name: 'Mobile Light',
       use: {
         browserName: 'chromium',
         viewport: { width: 390, height: 844 },
+        colorScheme: 'light',
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'Mobile Dark',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 390, height: 844 },
+        colorScheme: 'dark',
         hasTouch: true,
         isMobile: true,
       },
