@@ -31,10 +31,7 @@ func main() {
 		return
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	gin.SetMode(gin.ReleaseMode)
-	if RuntimeExitCode(ctx, cfg, productionRuntimeDependencies()) != runtimeSuccessExitCode {
+	if RuntimeExitCode(context.Background(), cfg, productionRuntimeDependencies()) != runtimeSuccessExitCode {
 		os.Exit(runtimeFailureExitCode)
 	}
 }
@@ -52,6 +49,7 @@ type RuntimeDependencies struct {
 	InitRedis     func(Config)
 	PingRedis     func(context.Context) error
 	CloseRedis    func() error
+	SignalContext func(context.Context) (context.Context, context.CancelFunc)
 	NewRouter     func(Config, Dependencies) http.Handler
 	NewHTTPServer func(Config, http.Handler) *HTTPServer
 }
@@ -70,8 +68,14 @@ func productionRuntimeDependencies() RuntimeDependencies {
 			}
 			return client.Ping(ctx).Err()
 		},
-		CloseRedis:    CloseRedisClient,
-		NewRouter:     func(cfg Config, dependencies Dependencies) http.Handler { return NewRouter(cfg, dependencies) },
+		CloseRedis: CloseRedisClient,
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+		},
+		NewRouter: func(cfg Config, dependencies Dependencies) http.Handler {
+			gin.SetMode(gin.ReleaseMode)
+			return NewRouter(cfg, dependencies)
+		},
 		NewHTTPServer: NewHTTPServer,
 	}
 }
@@ -108,6 +112,8 @@ func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDepende
 		return fmt.Errorf("redis ping: %w", err)
 	}
 
+	serveCtx, stop := dependencies.SignalContext(ctx)
+	defer stop()
 	router := dependencies.NewRouter(cfg, Dependencies{Ping: dependencies.PingRedis})
 	defer func() {
 		if closeErr := CloseRequestLogger(); closeErr != nil && err == nil {
@@ -118,7 +124,7 @@ func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDepende
 	if logger != nil {
 		logger.Infof("server running on %s", server.Addr)
 	}
-	if err = server.Serve(ctx); err != nil {
+	if err = server.Serve(serveCtx); err != nil {
 		return fmt.Errorf("serve HTTP: %w", err)
 	}
 	return nil

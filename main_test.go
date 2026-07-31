@@ -31,16 +31,64 @@ func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, 
 		},
 		NewRouter:     func(Config, Dependencies) http.Handler { return http.NewServeMux() },
 		NewHTTPServer: NewHTTPServer,
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return context.WithCancel(parent)
+		},
 	}, &closes, &syncs
 }
 
 func TestRuntimeExitCodeReturnsFailureAfterRedisStartupFailure(t *testing.T) {
 	dependencies, closes, syncs := testRuntimeDependencies(t)
+	var signals atomic.Int32
+	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+		signals.Add(1)
+		return context.WithCancel(parent)
+	}
 	dependencies.PingRedis = func(context.Context) error { return errors.New("redis unavailable") }
 
 	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
 	assert.Equal(t, int32(1), closes.Load())
 	assert.Equal(t, int32(1), syncs.Load())
+	assert.Zero(t, signals.Load())
+}
+
+func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(t *testing.T) {
+	var events []string
+	dependencies, _, _ := testRuntimeDependencies(t)
+	dependencies.InitLogger = func() { events = append(events, "logger") }
+	dependencies.InitRedis = func(Config) { events = append(events, "redis") }
+	dependencies.PingRedis = func(context.Context) error {
+		events = append(events, "ping")
+		return nil
+	}
+	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+		events = append(events, "signal")
+		ctx, cancel := context.WithCancel(parent)
+		cancel()
+		return ctx, func() {
+			events = append(events, "stop")
+			cancel()
+		}
+	}
+	dependencies.NewRouter = func(Config, Dependencies) http.Handler {
+		events = append(events, "router")
+		return http.NewServeMux()
+	}
+	dependencies.NewHTTPServer = func(cfg Config, handler http.Handler) *HTTPServer {
+		events = append(events, "server")
+		return NewHTTPServer(Config{Port: "0", ShutdownTimeout: time.Second}, handler)
+	}
+	dependencies.CloseRedis = func() error {
+		events = append(events, "redis-close")
+		return nil
+	}
+	dependencies.SyncLogger = func() error {
+		events = append(events, "logger-sync")
+		return nil
+	}
+
+	assert.NoError(t, RunApplication(t.Context(), defaultConfig(), dependencies))
+	assert.Equal(t, []string{"logger", "redis", "ping", "signal", "router", "server", "stop", "redis-close", "logger-sync"}, events)
 }
 
 func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {
@@ -49,6 +97,15 @@ func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {
 	defer listener.Close()
 
 	dependencies, closes, syncs := testRuntimeDependencies(t)
+	var signals, stops atomic.Int32
+	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+		signals.Add(1)
+		ctx, cancel := context.WithCancel(parent)
+		return ctx, func() {
+			stops.Add(1)
+			cancel()
+		}
+	}
 	dependencies.PingRedis = func(context.Context) error { return nil }
 	cfg := defaultConfig()
 	cfg.Port = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
@@ -56,10 +113,21 @@ func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {
 	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), cfg, dependencies))
 	assert.Equal(t, int32(1), closes.Load())
 	assert.Equal(t, int32(1), syncs.Load())
+	assert.Equal(t, int32(1), signals.Load())
+	assert.Equal(t, int32(1), stops.Load())
 }
 
 func TestRuntimeExitCodeReturnsSuccessAfterNormalCancellation(t *testing.T) {
 	dependencies, closes, syncs := testRuntimeDependencies(t)
+	var signals, stops atomic.Int32
+	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+		signals.Add(1)
+		ctx, cancel := context.WithCancel(parent)
+		return ctx, func() {
+			stops.Add(1)
+			cancel()
+		}
+	}
 	dependencies.PingRedis = func(context.Context) error { return nil }
 	cfg := defaultConfig()
 	cfg.Port = "0"
@@ -71,4 +139,6 @@ func TestRuntimeExitCodeReturnsSuccessAfterNormalCancellation(t *testing.T) {
 	assert.Equal(t, runtimeSuccessExitCode, RuntimeExitCode(ctx, cfg, dependencies))
 	assert.Equal(t, int32(1), closes.Load())
 	assert.Equal(t, int32(1), syncs.Load())
+	assert.Equal(t, int32(1), signals.Load())
+	assert.Equal(t, int32(1), stops.Load())
 }
