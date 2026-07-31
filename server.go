@@ -20,6 +20,7 @@ type HTTPServer struct {
 	*http.Server
 	ShutdownTimeout time.Duration
 	listenAndServe  func() error
+	shutdown        func(context.Context) error
 }
 
 // NewRouter builds the application's HTTP routes.
@@ -63,6 +64,7 @@ func NewHTTPServer(cfg Config, handler http.Handler) *HTTPServer {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}
 	server.listenAndServe = server.Server.ListenAndServe
+	server.shutdown = server.Server.Shutdown
 	return server
 }
 
@@ -84,14 +86,14 @@ func (server *HTTPServer) Serve(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.ShutdownTimeout)
 		defer cancel()
 
-		shutdownErr := server.Shutdown(shutdownCtx)
-		err := <-serveErr
-		if shutdownErr != nil {
-			return shutdownErr
-		}
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
+		shutdownErr := server.shutdown(shutdownCtx)
+		return errors.Join(shutdownErr, normalizeServeError(<-serveErr))
 	}
+}
+
+func normalizeServeError(err error) error {
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }

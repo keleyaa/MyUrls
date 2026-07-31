@@ -51,6 +51,7 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	defer listener.Close()
 
 	started := make(chan struct{})
+	shutdownStarted := make(chan struct{})
 	release := make(chan struct{})
 	finished := make(chan struct{})
 	server := NewHTTPServer(defaultConfig(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,10 +61,36 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	server.listenAndServe = func() error { return server.Server.Serve(listener) }
+	server.shutdown = func(ctx context.Context) error {
+		close(shutdownStarted)
+		return server.Server.Shutdown(ctx)
+	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	result := make(chan error, 1)
+	result := make(chan error)
 	go func() { result <- server.Serve(ctx) }()
+	observerReady := make(chan struct{})
+	observed := make(chan struct {
+		err              error
+		handlerCompleted bool
+	}, 1)
+	go func() {
+		close(observerReady)
+		err := <-result
+		select {
+		case <-finished:
+			observed <- struct {
+				err              error
+				handlerCompleted bool
+			}{err: err, handlerCompleted: true}
+		default:
+			observed <- struct {
+				err              error
+				handlerCompleted bool
+			}{err: err}
+		}
+	}()
+	<-observerReady
 
 	requestDone := make(chan struct{})
 	go func() {
@@ -75,17 +102,14 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	}()
 	<-started
 	cancel()
-
-	select {
-	case err := <-result:
-		t.Fatalf("Serve returned before the in-flight request completed: %v", err)
-	default:
-	}
+	<-shutdownStarted
 
 	close(release)
 	<-finished
 	<-requestDone
-	assert.NoError(t, <-result)
+	completion := <-observed
+	assert.True(t, completion.handlerCompleted, "Serve returned before the in-flight handler completed")
+	assert.NoError(t, completion.err)
 }
 
 func TestServeReturnsShutdownDeadlineWithoutLeakingHandler(t *testing.T) {
@@ -96,6 +120,7 @@ func TestServeReturnsShutdownDeadlineWithoutLeakingHandler(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	finished := make(chan struct{})
+	clientDone := make(chan struct{})
 	cfg := defaultConfig()
 	cfg.ShutdownTimeout = 10 * time.Millisecond
 	server := NewHTTPServer(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +135,7 @@ func TestServeReturnsShutdownDeadlineWithoutLeakingHandler(t *testing.T) {
 	go func() { result <- server.Serve(ctx) }()
 
 	go func() {
+		defer close(clientDone)
 		response, err := http.Get("http://" + listener.Addr().String())
 		if err == nil {
 			response.Body.Close()
@@ -126,6 +152,7 @@ func TestServeReturnsShutdownDeadlineWithoutLeakingHandler(t *testing.T) {
 	}
 	close(release)
 	<-finished
+	<-clientDone
 }
 
 func TestServeDoesNotIgnoreUnexpectedListenError(t *testing.T) {
@@ -134,4 +161,28 @@ func TestServeDoesNotIgnoreUnexpectedListenError(t *testing.T) {
 	server.listenAndServe = func() error { return want }
 
 	assert.ErrorIs(t, server.Serve(t.Context()), want)
+}
+
+func TestServeJoinsShutdownAndListenErrorsWhenCancellationRaces(t *testing.T) {
+	shutdownErr := errors.New("shutdown failure")
+	listenErr := errors.New("listener failure")
+	shutdownEntered := make(chan struct{})
+	server := NewHTTPServer(defaultConfig(), http.NewServeMux())
+	server.shutdown = func(context.Context) error {
+		close(shutdownEntered)
+		return shutdownErr
+	}
+	server.listenAndServe = func() error {
+		<-shutdownEntered
+		return listenErr
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- server.Serve(ctx) }()
+	cancel()
+
+	err := <-result
+	assert.ErrorIs(t, err, shutdownErr)
+	assert.ErrorIs(t, err, listenErr)
 }

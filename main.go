@@ -44,14 +44,16 @@ const (
 // RuntimeDependencies separates process wiring from the application's runtime
 // lifecycle so failures can be tested without calling os.Exit.
 type RuntimeDependencies struct {
-	InitLogger    func()
-	SyncLogger    func() error
-	InitRedis     func(Config)
-	PingRedis     func(context.Context) error
-	CloseRedis    func() error
-	SignalContext func(context.Context) (context.Context, context.CancelFunc)
-	NewRouter     func(Config, Dependencies) http.Handler
-	NewHTTPServer func(Config, http.Handler) *HTTPServer
+	InitLogger         func()
+	SyncLogger         func() error
+	InitRedis          func(Config)
+	PingRedis          func(context.Context) error
+	CloseRedis         func() error
+	CloseRequestLogger func() error
+	LogError           func(error)
+	SignalContext      func(context.Context) (context.Context, context.CancelFunc)
+	NewRouter          func(Config, Dependencies) http.Handler
+	NewHTTPServer      func(Config, http.Handler) *HTTPServer
 }
 
 func productionRuntimeDependencies() RuntimeDependencies {
@@ -68,7 +70,13 @@ func productionRuntimeDependencies() RuntimeDependencies {
 			}
 			return client.Ping(ctx).Err()
 		},
-		CloseRedis: CloseRedisClient,
+		CloseRedis:         CloseRedisClient,
+		CloseRequestLogger: CloseRequestLogger,
+		LogError: func(err error) {
+			if logger != nil {
+				logger.Errorw("application stopped", "error", err)
+			}
+		},
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 		},
@@ -84,9 +92,6 @@ func productionRuntimeDependencies() RuntimeDependencies {
 // documented exit status. main is the only caller that invokes os.Exit.
 func RuntimeExitCode(ctx context.Context, cfg Config, dependencies RuntimeDependencies) int {
 	if err := RunApplication(ctx, cfg, dependencies); err != nil {
-		if logger != nil {
-			logger.Errorw("application stopped", "error", err)
-		}
 		return runtimeFailureExitCode
 	}
 	return runtimeSuccessExitCode
@@ -96,15 +101,21 @@ func RuntimeExitCode(ctx context.Context, cfg Config, dependencies RuntimeDepend
 func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDependencies) (err error) {
 	dependencies.InitLogger()
 	defer func() {
-		if syncErr := dependencies.SyncLogger(); syncErr != nil && err == nil {
-			err = fmt.Errorf("sync logger: %w", syncErr)
+		if syncErr := dependencies.SyncLogger(); syncErr != nil {
+			err = errors.Join(err, fmt.Errorf("sync logger: %w", syncErr))
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+	defer func() {
+		if err != nil {
+			dependencies.LogError(err)
 		}
 	}()
 
 	dependencies.InitRedis(cfg)
 	defer func() {
-		if closeErr := dependencies.CloseRedis(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close redis: %w", closeErr)
+		if closeErr := dependencies.CloseRedis(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close redis: %w", closeErr))
 		}
 	}()
 
@@ -116,8 +127,8 @@ func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDepende
 	defer stop()
 	router := dependencies.NewRouter(cfg, Dependencies{Ping: dependencies.PingRedis})
 	defer func() {
-		if closeErr := CloseRequestLogger(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close request logger: %w", closeErr)
+		if closeErr := dependencies.CloseRequestLogger(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close request logger: %w", closeErr))
 		}
 	}()
 	server := dependencies.NewHTTPServer(cfg, router)

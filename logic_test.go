@@ -32,6 +32,16 @@ func TestLongToShortAndShortToLong(t *testing.T) {
 	assert.Equal(t, longURL, resultLongURL)
 }
 
+func TestLegacyRedisHelpersDoNotPanicWithoutClient(t *testing.T) {
+	resetRedisClient(t)
+
+	assert.Empty(t, ShortToLong(t.Context(), "key"))
+	assert.ErrorIs(t, LongToShort(t.Context(), &LongToShortOptions{ShortKey: "key", URL: "https://example.com", expiration: time.Hour}), ErrRedisClientUnavailable)
+	assert.ErrorIs(t, Renew(t.Context(), "key", time.Hour), ErrRedisClientUnavailable)
+	_, err := CheckRedisKeyIfExist(t.Context(), "key")
+	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
+}
+
 func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 	ctx := context.Background()
 	resetRedisClient(t)

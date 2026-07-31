@@ -29,8 +29,10 @@ func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, 
 			closes.Add(1)
 			return nil
 		},
-		NewRouter:     func(Config, Dependencies) http.Handler { return http.NewServeMux() },
-		NewHTTPServer: NewHTTPServer,
+		CloseRequestLogger: func() error { return nil },
+		LogError:           func(error) {},
+		NewRouter:          func(Config, Dependencies) http.Handler { return http.NewServeMux() },
+		NewHTTPServer:      NewHTTPServer,
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
 			return context.WithCancel(parent)
 		},
@@ -89,6 +91,44 @@ func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(
 
 	assert.NoError(t, RunApplication(t.Context(), defaultConfig(), dependencies))
 	assert.Equal(t, []string{"logger", "redis", "ping", "signal", "router", "server", "stop", "redis-close", "logger-sync"}, events)
+}
+
+func TestRunApplicationJoinsCleanupErrorsAndLogsBeforeSync(t *testing.T) {
+	runErr := errors.New("serve failed")
+	requestCloseErr := errors.New("request logger close failed")
+	redisCloseErr := errors.New("redis close failed")
+	syncErr := errors.New("logger sync failed")
+	var events []string
+	dependencies, _, _ := testRuntimeDependencies(t)
+	dependencies.PingRedis = func(context.Context) error { return nil }
+	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+		return context.WithCancel(parent)
+	}
+	dependencies.NewHTTPServer = func(cfg Config, handler http.Handler) *HTTPServer {
+		server := NewHTTPServer(cfg, handler)
+		server.listenAndServe = func() error { return runErr }
+		return server
+	}
+	dependencies.CloseRequestLogger = func() error {
+		events = append(events, "request-close")
+		return requestCloseErr
+	}
+	dependencies.CloseRedis = func() error {
+		events = append(events, "redis-close")
+		return redisCloseErr
+	}
+	dependencies.LogError = func(error) { events = append(events, "log") }
+	dependencies.SyncLogger = func() error {
+		events = append(events, "sync")
+		return syncErr
+	}
+
+	err := RunApplication(t.Context(), defaultConfig(), dependencies)
+	assert.ErrorIs(t, err, runErr)
+	assert.ErrorIs(t, err, requestCloseErr)
+	assert.ErrorIs(t, err, redisCloseErr)
+	assert.ErrorIs(t, err, syncErr)
+	assert.Equal(t, []string{"request-close", "redis-close", "log", "sync"}, events)
 }
 
 func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {

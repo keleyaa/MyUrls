@@ -16,6 +16,9 @@ const defaultTTL = time.Hour * 24 * 365 // 默认过期时间，1年
 // ShortToLong gets the long URL from a short URL
 func ShortToLong(ctx context.Context, shortKey string) string {
 	rc := GetRedisClient()
+	if rc == nil {
+		return ""
+	}
 	return rc.Get(ctx, shortKey).Val()
 }
 
@@ -29,6 +32,9 @@ type LongToShortOptions struct {
 // LongToShort creates a short URL from a long URL
 func LongToShort(ctx context.Context, options *LongToShortOptions) error {
 	rc := GetRedisClient()
+	if rc == nil {
+		return ErrRedisClientUnavailable
+	}
 	return rc.SetEx(ctx, options.ShortKey, options.URL, options.expiration).Err()
 }
 
@@ -77,6 +83,9 @@ func ResolveShortURL(ctx context.Context, shortKey string) (string, error) {
 // Renew updates the expiration time of a short URL
 func Renew(ctx context.Context, shortKey string, expiration time.Duration) error {
 	rc := GetRedisClient()
+	if rc == nil {
+		return ErrRedisClientUnavailable
+	}
 
 	rs := rc.TTL(ctx, shortKey)
 	if rs.Err() != nil {
@@ -93,6 +102,9 @@ func Renew(ctx context.Context, shortKey string, expiration time.Duration) error
 
 func CheckRedisKeyIfExist(ctx context.Context, key string) (bool, error) {
 	rc := GetRedisClient()
+	if rc == nil {
+		return false, ErrRedisClientUnavailable
+	}
 	rs := rc.Exists(ctx, key)
 	if rs.Err() != nil {
 		return false, rs.Err()
