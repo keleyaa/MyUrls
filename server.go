@@ -30,6 +30,8 @@ func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
 
 	router.LoadHTMLGlob("public/*.html")
 	router.StaticFile("/logo.png", "public/logo.png")
+	router.StaticFile("/app.js", "public/app.js")
+	router.StaticFile("/styles.css", "public/styles.css")
 	router.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.html", gin.H{"title": "MyUrls"})
 	})

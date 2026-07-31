@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +19,93 @@ import (
 
 func recordLifecycleEvent(sequence *atomic.Int64) int64 {
 	return sequence.Add(1)
+}
+
+func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
+	router := NewRouter(defaultConfig(), Dependencies{
+		Ping: func(context.Context) error { return nil },
+	})
+
+	tests := []struct {
+		path        string
+		contentType string
+	}{
+		{path: "/", contentType: "text/html"},
+		{path: "/app.js", contentType: "javascript"},
+		{path: "/styles.css", contentType: "text/css"},
+		{path: "/logo.png", contentType: "image/png"},
+		{path: "/healthz", contentType: "application/json"},
+	}
+
+	responses := make(map[string]string, len(tests))
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			require.Equal(t, http.StatusOK, response.Code)
+			assert.Contains(t, response.Header().Get("Content-Type"), tt.contentType)
+			responses[tt.path] = response.Body.String()
+		})
+	}
+
+	document := responses["/"]
+	lowerDocument := strings.ToLower(document)
+	for _, forbidden := range []string{"unpkg.com", "jsdelivr.net", "vue", "axios", "element-ui"} {
+		assert.NotContains(t, lowerDocument, forbidden)
+	}
+
+	for _, required := range []string{
+		`id="long-url"`,
+		`id="short-key"`,
+		`id="short-url"`,
+		`id="shorten-button"`,
+		`id="copy-button"`,
+		`id="status"`,
+	} {
+		assert.Contains(t, document, required)
+	}
+	statusTag := regexp.MustCompile(`<[^>]+id="status"[^>]*>`).FindString(document)
+	require.NotEmpty(t, statusTag)
+	assert.Contains(t, statusTag, `role="status"`)
+
+	assert.Contains(t, document, `<html lang="zh-CN">`)
+	assert.Contains(t, document, `<main`)
+	assert.Contains(t, document, `<form`)
+	assert.Contains(t, document, `<label for="long-url">`)
+	assert.Contains(t, document, `<label for="short-key">`)
+	assert.Contains(t, document, `<label for="short-url">`)
+	assert.Contains(t, document, `href="/styles.css"`)
+	assert.Contains(t, document, `src="/app.js"`)
+	assert.Contains(t, document, `src="/logo.png"`)
+	assert.Contains(t, document, `src="/app.js" defer`)
+	assert.Equal(t, 1, strings.Count(lowerDocument, `<script`))
+	assert.Equal(t, 1, strings.Count(lowerDocument, `rel="stylesheet"`))
+	assert.Equal(t, 1, strings.Count(lowerDocument, `<img`))
+	assert.NotContains(t, lowerDocument, `@font-face`)
+	assert.NotContains(t, lowerDocument, `url(http`)
+
+	appScript := strings.ToLower(responses["/app.js"])
+	for _, forbidden := range []string{"btoa(", "unpkg.com", "jsdelivr.net", "vue", "axios", "element-ui"} {
+		assert.NotContains(t, appScript, forbidden)
+	}
+	assert.Contains(t, appScript, "new formdata()")
+	assert.Contains(t, appScript, "fetch('/short'")
+	assert.Contains(t, appScript, "navigator.clipboard")
+	assert.Contains(t, appScript, "document.execcommand('copy')")
+
+	styles := strings.ToLower(responses["/styles.css"])
+	assert.Contains(t, styles, "width: min(42rem, calc(100% - 2rem))")
+	for _, forbidden := range []string{"@import", "@font-face", "linear-gradient", "radial-gradient", "vw;", "url(http"} {
+		assert.NotContains(t, styles, forbidden)
+	}
+
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	assert.True(t, routes[http.MethodGet+" /healthz"])
+	assert.True(t, routes[http.MethodGet+" /:shortKey"])
 }
 
 func TestNewHTTPServerConfiguresAddressAndTimeouts(t *testing.T) {

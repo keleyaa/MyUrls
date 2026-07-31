@@ -1,0 +1,184 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f5f7fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 20rem;
+  min-height: 100vh;
+  margin: 0;
+  background: #f5f7fa;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  padding: 3rem 0;
+  place-items: center;
+}
+
+.tool-card {
+  width: min(42rem, calc(100% - 2rem));
+  padding: 2rem;
+  border: 1px solid #dce2ea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(23, 32, 51, 0.08);
+}
+
+.repo-logo {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 1.5rem;
+  border-radius: 4px;
+}
+
+.repo-logo img {
+  display: block;
+  width: min(18.75rem, 100%);
+  height: auto;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.intro {
+  margin: 0.5rem 0 1.75rem;
+  color: #536076;
+  line-height: 1.6;
+  text-align: center;
+}
+
+form,
+.field {
+  display: grid;
+  gap: 0.5rem;
+}
+
+form {
+  gap: 1.25rem;
+}
+
+label {
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+label span {
+  color: #69758a;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+input,
+button {
+  height: 3rem;
+  border: 1px solid #aeb8c8;
+  border-radius: 6px;
+}
+
+input {
+  width: 100%;
+  padding: 0 0.875rem;
+  color: #172033;
+  background: #ffffff;
+}
+
+input::placeholder {
+  color: #748096;
+}
+
+input[readonly] {
+  background: #f5f7fa;
+}
+
+button {
+  padding: 0 1.125rem;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.primary-button {
+  border-color: #2456a6;
+  color: #ffffff;
+  background: #2456a6;
+}
+
+.primary-button:hover:not(:disabled) {
+  border-color: #183f80;
+  background: #183f80;
+}
+
+.secondary-button {
+  color: #24405f;
+  background: #ffffff;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: #edf2f8;
+}
+
+:focus-visible {
+  outline: 3px solid #79a9f5;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.result-field {
+  margin-top: 0.25rem;
+}
+
+.result-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.625rem;
+}
+
+#status {
+  min-height: 1.5rem;
+  margin: -0.25rem 0 0;
+  color: #536076;
+  line-height: 1.5;
+}
+
+#status[data-state="success"] {
+  color: #17663a;
+}
+
+#status[data-state="error"] {
+  color: #a12626;
+}
+
+@media (max-width: 32rem) {
+  .app-shell {
+    padding: 1rem 0;
+  }
+
+  .tool-card {
+    padding: 1.25rem;
+  }
+
+  .result-row {
+    grid-template-columns: 1fr;
+  }
+}

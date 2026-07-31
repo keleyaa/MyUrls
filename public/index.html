@@ -1,154 +1,71 @@
-<!DOCTYPE html>
-<html lang="en">
-
+<!doctype html>
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MyUrls</title>
-
-  <link rel="stylesheet" href="https://unpkg.com/element-ui@2.13.0/lib/theme-chalk/index.css">
-  <script src="https://unpkg.com/vue@2.6.11/dist/vue.min.js"></script>
-  <script src="https://unpkg.com/axios@0.19.2/dist/axios.min.js"></script>
-  <script src="https://unpkg.com/element-ui@2.13.0/lib/index.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vue-clipboard2@0.3.1/dist/vue-clipboard.min.js"></script>
+  <link rel="stylesheet" href="/styles.css">
 </head>
-
 <body>
-  <div id="app">
-    <el-container>
-      <el-header></el-header>
-      <el-main>
-        <div :class="[isPc ? 'body-center body-width-pc' : 'body-center body-width-mb']">
-          <img width="300" src="/logo.png" @click="goToGayHub">
-          <el-input ref="long" v-model="longUrl" size="medium" @keyup.enter.native="enterToDoShort">
-            <el-button slot="append" icon="el-icon-magic-stick" @click="doShort" :loading="loading"></el-button>
-          </el-input>
-          <el-input ref="shortUrl" @dblclick.native="changeDisableStatus" class="copy-content" v-model="shortUrl" size="medium">
-            <el-button slot="append" v-clipboard:copy="shortUrl" v-clipboard:success="onCopy" ref="copy-btn"
-              icon="el-icon-document-copy"></el-button>
-          </el-input>
+  <main class="app-shell">
+    <section class="tool-card" aria-labelledby="page-title">
+      <a
+        id="repo-logo"
+        class="repo-logo"
+        href="https://github.com/keleyaa/MyUrls"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="打开 MyUrls GitHub 仓库"
+      >
+        <img src="/logo.png" width="300" height="90" alt="MyUrls">
+      </a>
+
+      <h1 id="page-title">创建短链接</h1>
+      <p class="intro">输入一个 HTTP 或 HTTPS 链接，可选择自定义短码。</p>
+
+      <form id="shorten-form" action="/short" method="post">
+        <div class="field">
+          <label for="long-url">长链接</label>
+          <input
+            id="long-url"
+            name="longUrl"
+            type="url"
+            inputmode="url"
+            autocomplete="url"
+            placeholder="https://example.com/path"
+            required
+          >
         </div>
-      </el-main>
-    </el-container>
-  </div>
 
-  <script>
-    const repo = 'https://github.com/CareyWang/MyUrls'
+        <div class="field">
+          <label for="short-key">自定义短码 <span>（可选）</span></label>
+          <input
+            id="short-key"
+            name="shortKey"
+            type="text"
+            inputmode="text"
+            autocomplete="off"
+            maxlength="64"
+            pattern="[A-Za-z0-9_-]{1,64}"
+            placeholder="例如 docs_2026"
+          >
+        </div>
 
-    let app = new Vue({
-      el: "#app",
-      data() {
-        return {
-          isPc: true,
+        <button id="shorten-button" class="primary-button" type="submit">生成短链接</button>
 
-          loading: false,
-          longUrl: '',
-          shortUrl: ''
-        }
-      },
-      created() {
-        const os = this.getOS()
-        if (os.isPc !== true) {
-          this.isPc = false
-        }
-      },
-      mounted() {
-        this.$refs.long.focus()
-      },
-      methods: {
-        enterToDoShort(ev) {
-          ev.keyCode === 13 && this.doShort()
-        },
-        doShort() {
-          let re = new RegExp('http(s*)://[^\s]*')
-          if (re.exec(this.longUrl) === null) {
-            this.$message.warning('请输入正确格式的长链接')
-            return
-          }
+        <div class="field result-field">
+          <label for="short-url">短链接</label>
+          <div class="result-row">
+            <input id="short-url" type="url" readonly aria-describedby="status">
+            <button id="copy-button" class="secondary-button" type="button" disabled>复制</button>
+          </div>
+        </div>
 
-          this.loading = true
+        <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+      </form>
+    </section>
+  </main>
 
-          let data = new FormData();
-          data.append("longUrl", btoa(this.longUrl));
-          data.append("shortKey", this.shortUrl.indexOf('http') < 0 ? this.shortUrl : '');
-          axios.post('/short', data, {
-            header: {
-              "Content-Type": "application/form-data; charset=utf-8"
-            }
-          })
-            .then(res => {
-              if (res.data.Code === 1 && res.data.ShortUrl !== "") {
-                this.shortUrl = res.data.ShortUrl;
-                this.$copyText(this.shortUrl)
-                this.$refs.shortUrl.disabled = true
-                this.$message.success("短链接已复制到剪贴板");
-              } else {
-                this.$message.error("短链接获取失败：" + res.data.Message);
-              }
-            })
-            .catch(() => {
-              this.$message.error("短链接获取失败");
-            })
-            .finally(() => {
-              this.loading = false;
-            });
-        },
-        goToGayHub() {
-          window.open(repo)
-        },
-        getOS() {
-          let ua = navigator.userAgent,
-            isWindowsPhone = /(?:Windows Phone)/.test(ua),
-            isSymbian = /(?:SymbianOS)/.test(ua) || isWindowsPhone,
-            isAndroid = /(?:Android)/.test(ua),
-            isFireFox = /(?:Firefox)/.test(ua),
-            isChrome = /(?:Chrome|CriOS)/.test(ua),
-            isTablet = /(?:iPad|PlayBook)/.test(ua) || (isAndroid && !/(?:Mobile)/.test(ua)) || (isFireFox && /(?:Tablet)/.test(ua)),
-            isPhone = /(?:iPhone)/.test(ua) && !isTablet,
-            isPc = !isPhone && !isAndroid && !isSymbian;
-
-          return {
-            isTablet: isTablet,
-            isPhone: isPhone,
-            isAndroid: isAndroid,
-            isPc: isPc
-          };
-        },
-        getBodyClass() {
-          return this.isPc ? 'body-center body-width-pc' : 'body-center'
-        },
-        onCopy() {
-          this.$message.success("Copied!");
-        },
-        changeDisableStatus(event) {
-          this.$refs.shortUrl.disabled = false
-        }
-      },
-    })
-  </script>
-
-  <style>
-    .body-center {
-      width: 40%;
-      position: absolute;
-      left: 50%;
-      top: 30%;
-      transform: translate(-50%, -50%);
-      text-align: center;
-    }
-
-    .body-width-pc {
-      width: 40%;
-    }
-
-    .body-width-mb {
-      width: 90%;
-    }
-
-    .el-input {
-      margin-top: 20px;
-    }
-  </style>
+  <script src="/app.js" defer></script>
 </body>
-
 </html>
