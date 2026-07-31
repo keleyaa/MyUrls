@@ -8,5 +8,6 @@ logs
 docs
 tests
 node_modules
+MyUrls
 .idea
 dist

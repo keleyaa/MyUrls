@@ -29,18 +29,35 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    stop_grace_period: ${MYURLS_STOP_GRACE_PERIOD:-20s}
 
   myurls-redis:
     image: redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236
     restart: unless-stopped
+    environment:
+      MYURLS_REDIS_PASSWORD: ${MYURLS_REDIS_PASSWORD:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -n "$$MYURLS_REDIS_PASSWORD" ]; then
+          exec redis-server --requirepass "$$MYURLS_REDIS_PASSWORD"
+        fi
+        exec redis-server
     volumes:
-      - redis-data:/data
+      - "${MYURLS_REDIS_DATA_PATH:-./data/redis}:/data"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$$MYURLS_REDIS_PASSWORD" ]; then
+            REDISCLI_AUTH="$$MYURLS_REDIS_PASSWORD" redis-cli ping;
+          else
+            redis-cli ping;
+          fi | grep -qx PONG
       interval: 5s
       timeout: 3s
       retries: 10
 
 volumes:
   myurls-logs:
-  redis-data:

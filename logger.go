@@ -63,6 +63,9 @@ func createLogPath() error {
 	if err := os.MkdirAll(logFilePath, 0o755); err != nil {
 		return fmt.Errorf("create log directory: %w", err)
 	}
+	if err := os.Chmod(logFilePath, 0o755); err != nil {
+		return fmt.Errorf("set log directory permissions: %w", err)
+	}
 	return nil
 }
 

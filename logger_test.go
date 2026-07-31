@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,19 +26,20 @@ func TestCreateLogPathReturnsWorkingDirectoryError(t *testing.T) {
 	assert.Error(t, createLogPath())
 }
 
-func TestCreateLogPathUsesRestrictedDirectoryPermissions(t *testing.T) {
+func TestCreateLogPathTightensExistingDirectoryPermissions(t *testing.T) {
 	originalDirectory, err := os.Getwd()
 	assert.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, os.Chdir(originalDirectory))
 	})
-	assert.NoError(t, os.Chdir(t.TempDir()))
-
-	originalUmask := syscall.Umask(0)
-	t.Cleanup(func() { syscall.Umask(originalUmask) })
+	temporaryDirectory := t.TempDir()
+	assert.NoError(t, os.Chdir(temporaryDirectory))
+	logPath := filepath.Join(temporaryDirectory, "logs")
+	assert.NoError(t, os.Mkdir(logPath, 0o755))
+	assert.NoError(t, os.Chmod(logPath, 0o777))
 
 	assert.NoError(t, createLogPath())
-	info, err := os.Stat("logs")
+	info, err := os.Stat(logPath)
 	assert.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
