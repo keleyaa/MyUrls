@@ -42,7 +42,7 @@ type LongToShortParams struct {
 }
 
 // LongToShortHandler creates a short URL from a long URL
-func LongToShortHandler() gin.HandlerFunc {
+func LongToShortHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := Response{}
 
@@ -100,7 +100,7 @@ func LongToShortHandler() gin.HandlerFunc {
 			return
 		}
 
-		shortURL := proto + "://" + domain + "/" + options.ShortKey
+		shortURL := cfg.Proto + "://" + cfg.Domain + "/" + options.ShortKey
 
 		// 兼容以前的返回结构体
 		respDataLegacy := gin.H{

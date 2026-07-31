@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -11,42 +12,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var helpFlag bool
-
-var (
-	port          = "8080"
-	domain        = "localhost:8080"
-	proto         = "https"
-	redisAddr     = "localhost:6379"
-	redisPassword = ""
-)
-
-func init() {
-	flag.BoolVar(&helpFlag, "h", false, "display help")
-
-	flag.StringVar(&port, "port", port, "port to run the server on")
-	flag.StringVar(&domain, "domain", domain, "domain of the server")
-	flag.StringVar(&proto, "proto", proto, "protocol of the server")
-	flag.StringVar(&redisAddr, "conn", redisAddr, "address of the redis server")
-	flag.StringVar(&redisPassword, "password", redisPassword, "password of the redis server")
-}
-
 func main() {
-	flag.Parse()
-	if helpFlag {
-		flag.Usage()
-		os.Exit(0)
+	cfg, err := LoadConfig(os.Args[1:], os.LookupEnv)
+	if errors.Is(err, flag.ErrHelp) {
+		return
 	}
-
-	// 从环境变量中读取配置，且环境变量优先级高于命令行参数
-	parseEnvirons()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	InitLogger()
 
 	// init and check redis
 	initRedisClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: redisPassword,
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
 		DB:       0,
 	})
 
@@ -65,28 +46,10 @@ func main() {
 	}()
 
 	// start http server
-	run()
+	run(cfg)
 }
 
-func parseEnvirons() {
-	if p := os.Getenv("MYURLS_PORT"); p != "" {
-		port = p
-	}
-	if d := os.Getenv("MYURLS_DOMAIN"); d != "" {
-		domain = d
-	}
-	if p := os.Getenv("MYURLS_PROTO"); p != "" {
-		proto = p
-	}
-	if c := os.Getenv("MYURLS_REDIS_CONN"); c != "" {
-		redisAddr = c
-	}
-	if p := os.Getenv("MYURLS_REDIS_PASSWORD"); p != "" {
-		redisPassword = p
-	}
-}
-
-func run() {
+func run(cfg Config) {
 	// init and run server
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
@@ -104,9 +67,9 @@ func run() {
 		})
 	})
 
-	router.POST("/short", LongToShortHandler())
+	router.POST("/short", LongToShortHandler(cfg))
 	router.GET("/:shortKey", ShortToLongHandler())
 
-	logger.Infof("server running on :%s", port)
-	router.Run(fmt.Sprintf(":%s", port))
+	logger.Infof("server running on :%s", cfg.Port)
+	router.Run(fmt.Sprintf(":%s", cfg.Port))
 }
