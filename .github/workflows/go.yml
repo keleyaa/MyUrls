@@ -1,92 +1,184 @@
-name: Github CI
+name: CI
 
 on:
   push:
-    branches: 
-      - '*'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  linux_amd64_build:
-    name: Linux amd64 build
+  go-quality-integration:
+    name: Go quality and Redis integration
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      MYURLS_REDIS_CONN: 127.0.0.1:6379
     steps:
-      - name: Set up Go 1.24
-        uses: actions/setup-go@v5
-        with:
-          go-version: '^1.24.3'
-        id: go
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@master
-      - name: Install dependencies
-        run: sudo apt install gcc-aarch64-linux-gnu
-      - name: Build
-        run: /bin/sh -c "chmod +x scripts/build_linux_amd64.sh && bash scripts/build_linux_amd64.sh"
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: myurls-linux-amd64
-          path: build/myurls-linux-amd64.tar.gz
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-  linux_arm64_build:
-    name: Linux arm64 build
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          tracked_go_files="$(git ls-files '*.go')"
+          unformatted="$(gofmt -l ${tracked_go_files})"
+          if [[ -n "${unformatted}" ]]; then
+            printf 'Unformatted Go files:\n%s\n' "${unformatted}"
+            exit 1
+          fi
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Run unit and HTTP tests
+        run: go test -count=1 ./...
+
+      - name: Run shuffled tests repeatedly
+        run: go test -shuffle=on -count=20 ./...
+
+      - name: Run race detector
+        run: go test -race -count=1 ./...
+
+      - name: Run vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+      - name: Run real Redis integration tests
+        shell: bash
+        run: |
+          go test -tags=integration -count=1 -v ./tests/integration | tee "${RUNNER_TEMP}/redis-integration.log"
+          if grep -q '^--- SKIP:' "${RUNNER_TEMP}/redis-integration.log"; then
+            echo 'Redis integration tests unexpectedly skipped.' >&2
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
-    # runs-on: self-hosted
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: myurls-linux-amd64
+          - goos: linux
+            goarch: arm64
+            output: myurls-linux-arm64
+          - goos: windows
+            goarch: amd64
+            output: myurls-windows-amd64.exe
     steps:
-      - name: Set up Go 1.24
-        uses: actions/setup-go@v5
-        with:
-          go-version: '^1.24.3'
-        id: go
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@master
-      - name: Install dependencies
-        run: sudo apt install gcc-aarch64-linux-gnu
-      - name: Build
-        run: /bin/sh -c "chmod +x scripts/build_linux_arm64.sh && bash scripts/build_linux_arm64.sh"
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: myurls-linux-arm64
-          path: build/myurls-linux-arm64.tar.gz
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-  # darwin_amd64_build:
-  #   name: Darwin amd64 build
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Set up Go 1.24
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version: '^1.24.3'
-  #       id: go
-  #     - name: Check out code into the Go module directory
-  #       uses: actions/checkout@master
-  #     - name: Install dependencies
-  #       run: sudo apt install gcc-aarch64-linux-gnu
-  #     - name: Build
-  #       run: /bin/sh -c "chmod +x scripts/build_darwin_amd64.sh && bash scripts/build_darwin_amd64.sh"
-  #     - name: Upload
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: myurls-darwin-amd64.tar.gz
-  #         path: build/myurls-darwin-amd64.tar.gz
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.5'
+          cache: true
 
-  windows_x64_build:
-    name: Windows x64 build
+      - name: Build target
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p build
+          go build -trimpath -o "build/${{ matrix.output }}" .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.output }}
+          path: build/${{ matrix.output }}
+          if-no-files-found: error
+
+  docker-e2e:
+    name: Docker smoke and browser E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: myurls-ci
+      MYURLS_PORT: '8080'
+      MYURLS_DOMAIN: 127.0.0.1:8080
+      MYURLS_PROTO: http
+      MYURLS_REDIS_DATA_PATH: ./build/ci-redis
     steps:
-      - name: Set up Go 1.24
-        uses: actions/setup-go@v5
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          go-version: '^1.24.3'
-        id: go
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@master
-      - name: Install dependencies
-        run: sudo apt install gcc-aarch64-linux-gnu
-      - name: Build
-        run: /bin/sh -c "chmod +x scripts/build_windows_x64.sh && bash scripts/build_windows_x64.sh"
-      - name: Upload
-        uses: actions/upload-artifact@v4
+          node-version: '24.18.1'
+          cache: npm
+
+      - name: Install browser test dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start hardened Compose stack
+        run: |
+          mkdir -p build/ci-redis
+          docker compose up -d --build --wait --wait-timeout 120
+
+      - name: Verify container boundaries and health
+        shell: bash
+        run: |
+          app_id="$(docker compose ps -q myurls)"
+          redis_id="$(docker compose ps -q myurls-redis)"
+          test -n "${app_id}"
+          test -n "${redis_id}"
+          test "$(docker inspect --format '{{.Config.User}}' "${app_id}")" = '65532:65532'
+          test "$(docker inspect --format '{{.State.Health.Status}}' "${app_id}")" = 'healthy'
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "${app_id}")" = 'true'
+          test "$(docker inspect --format '{{.State.Health.Status}}' "${redis_id}")" = 'healthy'
+          test -z "$(docker port "${redis_id}")"
+          curl --fail --silent --show-error http://127.0.0.1:8080/healthz
+
+      - name: Run desktop and mobile E2E tests
+        run: npm run test:e2e
+
+      - name: Print Compose diagnostics
+        if: always()
+        run: |
+          docker compose ps --all || true
+          docker compose logs --no-color || true
+
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: myurls-windows-x64.tar.gz
-          path: build/myurls-windows-x64.tar.gz
+          name: playwright-diagnostics
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose down --remove-orphans

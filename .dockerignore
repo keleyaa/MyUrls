@@ -8,6 +8,8 @@ logs
 docs
 tests
 node_modules
+playwright-report
+test-results
 MyUrls
 .idea
 dist

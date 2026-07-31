@@ -75,6 +75,7 @@ func TestStaticAssetsHaveNoRuntimeDependencies(t *testing.T) {
 	assert.Contains(t, document, `<label for="long-url">`)
 	assert.Contains(t, document, `<label for="short-key">`)
 	assert.Contains(t, document, `<label for="short-url">`)
+	assert.Contains(t, document, `pattern="[A-Za-z0-9_\-]{1,64}"`)
 	assert.Contains(t, document, `href="/styles.css"`)
 	assert.Contains(t, document, `src="/app.js"`)
 	assert.Contains(t, document, `src="/logo.png"`)

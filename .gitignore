@@ -7,3 +7,6 @@ data/
 .env
 dist/
 MyUrls 
+node_modules/
+playwright-report/
+test-results/
