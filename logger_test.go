@@ -5,21 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
-
-type failingSyncer struct{ err error }
-
-func (s failingSyncer) Sync() error { return s.err }
-
-type failingCloser struct {
-	err    error
-	closed bool
-}
-
-func (c *failingCloser) Close() error {
-	c.closed = true
-	return c.err
-}
 
 func TestRequestLoggerIsSharedAndClosable(t *testing.T) {
 	first := initGinLogger()
@@ -41,11 +28,32 @@ func TestCloseRequestLoggerIsNoopWhenUninitialized(t *testing.T) {
 func TestCloseRequestLogJoinsSyncAndCloseErrors(t *testing.T) {
 	syncErr := errors.New("sync failed")
 	closeErr := errors.New("close failed")
-	writer := &failingCloser{err: closeErr}
+	closed := false
 
-	err := closeRequestLog(failingSyncer{err: syncErr}, writer)
+	err := closeRequestLog(func() error { return syncErr }, func() error {
+		closed = true
+		return closeErr
+	})
 
 	assert.ErrorIs(t, err, syncErr)
 	assert.ErrorIs(t, err, closeErr)
-	assert.True(t, writer.closed)
+	assert.True(t, closed)
+}
+
+func TestCloseRequestLogHandlesNilAndCloseOnlyFunctions(t *testing.T) {
+	assert.NoError(t, closeRequestLog(nil, nil))
+
+	closed := false
+	assert.NoError(t, closeRequestLog(nil, func() error {
+		closed = true
+		return nil
+	}))
+	assert.True(t, closed)
+
+	requestLoggerMu.Lock()
+	var typedNilLogger *zap.Logger
+	requestLogger = typedNilLogger
+	requestLoggerWriter = nil
+	requestLoggerMu.Unlock()
+	assert.NoError(t, CloseRequestLogger())
 }

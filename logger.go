@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"io"
 	"os"
 	"path"
 	"sync"
@@ -131,24 +130,25 @@ func CloseRequestLogger() error {
 	requestLoggerWriter = nil
 	requestLoggerMu.Unlock()
 
-	if requestLog == nil && writer == nil {
-		return nil
-	}
-	return closeRequestLog(requestLog, writer)
-}
-
-type logSyncer interface {
-	Sync() error
-}
-
-func closeRequestLog(requestLog logSyncer, writer io.Closer) error {
-	var syncErr error
+	var syncFunc func() error
 	if requestLog != nil {
-		syncErr = requestLog.Sync()
+		syncFunc = requestLog.Sync
+	}
+	var closeFunc func() error
+	if writer != nil {
+		closeFunc = writer.Close
+	}
+	return closeRequestLog(syncFunc, closeFunc)
+}
+
+func closeRequestLog(syncFunc func() error, closeFunc func() error) error {
+	var syncErr error
+	if syncFunc != nil {
+		syncErr = syncFunc()
 	}
 	var closeErr error
-	if writer != nil {
-		closeErr = writer.Close()
+	if closeFunc != nil {
+		closeErr = closeFunc()
 	}
 	return errors.Join(syncErr, closeErr)
 }

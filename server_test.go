@@ -6,12 +6,17 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func recordLifecycleEvent(sequence *atomic.Int64) int64 {
+	return sequence.Add(1)
+}
 
 func TestNewHTTPServerConfiguresAddressAndTimeouts(t *testing.T) {
 	cfg := Config{
@@ -53,11 +58,15 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	started := make(chan struct{})
 	shutdownStarted := make(chan struct{})
 	release := make(chan struct{})
-	finished := make(chan struct{})
+	handlerFinished := make(chan struct{})
+	var eventSequence atomic.Int64
+	var handlerFinishedAt atomic.Int64
+	var serveReturnedAt atomic.Int64
 	server := NewHTTPServer(defaultConfig(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-release
-		close(finished)
+		handlerFinishedAt.Store(recordLifecycleEvent(&eventSequence))
+		close(handlerFinished)
 		w.WriteHeader(http.StatusOK)
 	}))
 	server.listenAndServe = func() error { return server.Server.Serve(listener) }
@@ -67,30 +76,12 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
-	result := make(chan error)
-	go func() { result <- server.Serve(ctx) }()
-	observerReady := make(chan struct{})
-	observed := make(chan struct {
-		err              error
-		handlerCompleted bool
-	}, 1)
+	result := make(chan error, 1)
 	go func() {
-		close(observerReady)
-		err := <-result
-		select {
-		case <-finished:
-			observed <- struct {
-				err              error
-				handlerCompleted bool
-			}{err: err, handlerCompleted: true}
-		default:
-			observed <- struct {
-				err              error
-				handlerCompleted bool
-			}{err: err}
-		}
+		err := server.Serve(ctx)
+		serveReturnedAt.Store(recordLifecycleEvent(&eventSequence))
+		result <- err
 	}()
-	<-observerReady
 
 	requestDone := make(chan struct{})
 	go func() {
@@ -105,11 +96,10 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	<-shutdownStarted
 
 	close(release)
-	<-finished
+	<-handlerFinished
 	<-requestDone
-	completion := <-observed
-	assert.True(t, completion.handlerCompleted, "Serve returned before the in-flight handler completed")
-	assert.NoError(t, completion.err)
+	assert.NoError(t, <-result)
+	assert.Less(t, handlerFinishedAt.Load(), serveReturnedAt.Load(), "Serve returned before the in-flight handler completed")
 }
 
 func TestServeReturnsShutdownDeadlineWithoutLeakingHandler(t *testing.T) {
