@@ -99,6 +99,7 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
     window.__clipboardMode = 'success'
     window.__clipboardText = ''
     window.__execCommandCount = 0
+    window.__pendingCopies = []
     Object.defineProperty(Navigator.prototype, 'clipboard', {
       configurable: true,
       get() {
@@ -106,7 +107,7 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
           writeText(value) {
             if (window.__clipboardMode === 'pending') {
               return new Promise((resolve, reject) => {
-                window.__pendingCopy = { resolve, reject, value }
+                window.__pendingCopies.push({ resolve, reject, value })
               })
             }
             if (window.__clipboardMode === 'reject') {
@@ -189,7 +190,7 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
     window.__clipboardMode = 'pending'
   })
   await page.locator('#copy-button').click()
-  await expect.poll(() => page.evaluate(() => Boolean(window.__pendingCopy))).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__pendingCopies.length)).toBe(1)
 
   await page.evaluate(() => {
     window.__clipboardMode = 'success'
@@ -199,10 +200,28 @@ test('Enter提交/loading/自动复制/再次复制', async ({ page }) => {
   expect(requestCount).toBe(2)
 
   await page.evaluate(() => {
-    window.__pendingCopy.reject(new Error('old copy failed'))
+    window.__pendingCopies[0].reject(new Error('old copy failed'))
   })
   await expect.poll(() => page.evaluate(() => window.__execCommandCount)).toBe(1)
   await expect(page.locator('#status')).toHaveText('已生成并自动复制。')
+
+  await page.evaluate(() => {
+    window.__clipboardMode = 'pending'
+  })
+  await page.locator('#copy-button').click()
+  await expect.poll(() => page.evaluate(() => window.__pendingCopies.length)).toBe(2)
+
+  await page.evaluate(() => {
+    window.__clipboardMode = 'success'
+  })
+  await page.locator('#copy-button').click()
+  await expect(page.locator('#status')).toHaveText('短链接已复制。')
+
+  await page.evaluate(() => {
+    window.__pendingCopies[1].reject(new Error('earlier copy failed'))
+  })
+  await expect.poll(() => page.evaluate(() => window.__execCommandCount)).toBe(2)
+  await expect(page.locator('#status')).toHaveText('短链接已复制。')
 })
 
 test('业务错误脱敏与旧结果清除', async ({ page }) => {

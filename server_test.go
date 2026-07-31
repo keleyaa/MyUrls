@@ -212,6 +212,7 @@ func TestLuminousFocusClientScriptContract(t *testing.T) {
 		"aria-busy",
 		"form.novalidate = true",
 		"let resultversion = 0",
+		"let copyattemptversion = 0",
 		"document.activeelement",
 		"isconnected",
 		"focus({ preventscroll: true })",

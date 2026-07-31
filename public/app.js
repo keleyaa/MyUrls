@@ -91,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const copyButton = document.querySelector('#copy-button')
   const status = document.querySelector('#status')
   let resultVersion = 0
+  let copyAttemptVersion = 0
 
   form.noValidate = true
 
@@ -108,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearResult() {
     resultVersion += 1
+    copyAttemptVersion += 1
     shortURL.replaceChildren()
     copyButton.hidden = true
     copyButton.disabled = true
@@ -174,6 +176,8 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 
   copyButton.addEventListener('click', async () => {
+    copyAttemptVersion += 1
+    const attemptVersion = copyAttemptVersion
     const value = shortURL.textContent
     if (!value) {
       clearResult()
@@ -183,12 +187,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       await copyText(value)
-      if (version !== resultVersion || shortURL.textContent !== value) {
+      if (version !== resultVersion || shortURL.textContent !== value || attemptVersion !== copyAttemptVersion) {
         return
       }
       setStatus(copiedAgainMessage, 'success')
     } catch {
-      if (version !== resultVersion || shortURL.textContent !== value) {
+      if (version !== resultVersion || shortURL.textContent !== value || attemptVersion !== copyAttemptVersion) {
         return
       }
       setStatus(copyAgainFailedMessage, 'copy-error')
