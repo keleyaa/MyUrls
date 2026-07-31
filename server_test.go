@@ -63,10 +63,12 @@ func TestServeGracefullyWaitsForInflightRequest(t *testing.T) {
 	var handlerFinishedAt atomic.Int64
 	var serveReturnedAt atomic.Int64
 	server := NewHTTPServer(defaultConfig(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			handlerFinishedAt.Store(recordLifecycleEvent(&eventSequence))
+			close(handlerFinished)
+		}()
 		close(started)
 		<-release
-		handlerFinishedAt.Store(recordLifecycleEvent(&eventSequence))
-		close(handlerFinished)
 		w.WriteHeader(http.StatusOK)
 	}))
 	server.listenAndServe = func() error { return server.Server.Serve(listener) }
