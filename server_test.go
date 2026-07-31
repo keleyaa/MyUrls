@@ -76,13 +76,37 @@ func TestLuminousFocusStylesContract(t *testing.T) {
 		assert.NotContains(t, styles, forbidden)
 	}
 
-	hoverRule := regexp.MustCompile(`(?s)#shorten-button:hover:not\(:disabled\)\s*\{([^}]*)\}`).FindStringSubmatch(styles)
-	require.Len(t, hoverRule, 2)
-	assert.NotContains(t, hoverRule[1], "transform: scale(0.94)")
+	ruleBody := func(selector string) string {
+		matches := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(selector) + `\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+		require.Len(t, matches, 2, "missing CSS rule %s", selector)
+		return matches[1]
+	}
 
-	activeRule := regexp.MustCompile(`(?s)#shorten-button:active:not\(:disabled\)\s*\{([^}]*)\}`).FindStringSubmatch(styles)
-	require.Len(t, activeRule, 2)
-	assert.Contains(t, activeRule[1], "transform: scale(0.94)")
+	buttonRule := ruleBody("#shorten-button")
+	assert.Contains(t, buttonRule, "transition: transform 110ms ease-out, box-shadow 180ms ease-out, opacity 180ms ease-out")
+
+	hoverRule := ruleBody("#shorten-button:hover:not(:disabled)")
+	assert.NotContains(t, hoverRule, "transform")
+
+	activeRule := ruleBody("#shorten-button:active:not(:disabled)")
+	assert.Contains(t, activeRule, "transform: scale(0.94)")
+	assert.NotContains(t, activeRule, "transition-duration")
+
+	resultRule := ruleBody(".result-surface")
+	assert.NotRegexp(t, `animation:[^;]*\b(?:both|forwards)\b`, resultRule)
+	resultActiveRule := ruleBody(".result-surface:active:not(:disabled)")
+	assert.Contains(t, resultActiveRule, "transform: scale(0.985)")
+
+	summaryRule := ruleBody(".custom-key summary")
+	assert.Contains(t, summaryRule, "min-block-size: 2.75rem")
+
+	contrastBlock := regexp.MustCompile(`(?s)@media\s*\(prefers-contrast:\s*more\)\s*\{(.*)\}\s*$`).FindStringSubmatch(styles)
+	require.Len(t, contrastBlock, 2)
+	assert.Contains(t, contrastBlock[1], "--border: currentcolor")
+	assert.Contains(t, contrastBlock[1], "--bright-border: currentcolor")
+
+	wordmarkRule := ruleBody(".wordmark")
+	assert.Regexp(t, `font-family:\s*manrope,\s*[^;]*sans-serif`, wordmarkRule)
 }
 
 func TestLuminousFocusDocumentContract(t *testing.T) {
