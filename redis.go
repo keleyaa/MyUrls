@@ -18,6 +18,17 @@ func GetRedisClient() *redis.Client {
 	return RedisClient
 }
 
+// CloseRedisClient closes the active client. It is safe to call more than once.
+func CloseRedisClient() error {
+	if RedisClient == nil {
+		return nil
+	}
+
+	client := RedisClient
+	RedisClient = nil
+	return client.Close()
+}
+
 // StoreShortURL stores a URL only if no mapping already exists for key.
 func StoreShortURL(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
 	return GetRedisClient().SetNX(ctx, key, value, ttl).Result()

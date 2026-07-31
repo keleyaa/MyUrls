@@ -2,21 +2,27 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 )
 
 // Dependencies collects runtime dependencies for HTTP handlers.
-// Ping is reserved for future health-check injection.
 type Dependencies struct {
 	Ping func(context.Context) error
 }
 
+// HTTPServer keeps the HTTP server and its graceful shutdown deadline together.
+type HTTPServer struct {
+	*http.Server
+	ShutdownTimeout time.Duration
+}
+
 // NewRouter builds the application's HTTP routes.
-func NewRouter(cfg Config, _ Dependencies) *gin.Engine {
+func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
 	router := gin.Default()
 	router.Use(initServiceLogger())
 
@@ -36,17 +42,53 @@ func NewRouter(cfg Config, _ Dependencies) *gin.Engine {
 		BodyLimitMiddleware(int64(cfg.MaxBodyBytes)),
 		LongToShortHandler(cfg),
 	)
+	router.GET("/healthz", HealthHandler(dependencies.Ping))
 	router.GET("/:shortKey", ShortToLongHandler())
 
 	return router
 }
 
-func run(cfg Config) {
-	gin.SetMode(gin.ReleaseMode)
-	router := NewRouter(cfg, Dependencies{})
+// NewHTTPServer builds an HTTP server with bounded connection lifetimes.
+func NewHTTPServer(cfg Config, handler http.Handler) *HTTPServer {
+	return &HTTPServer{
+		Server: &http.Server{
+			Addr:              ":" + cfg.Port,
+			Handler:           handler,
+			ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+			ReadTimeout:       cfg.ReadTimeout,
+			WriteTimeout:      cfg.WriteTimeout,
+			IdleTimeout:       cfg.IdleTimeout,
+		},
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}
+}
 
-	logger.Infof("server running on :%s", cfg.Port)
-	if err := router.Run(fmt.Sprintf(":%s", cfg.Port)); err != nil {
-		logger.Errorw("server stopped", "error", err)
+// Serve runs the server until it stops or the supplied context requests a
+// graceful shutdown. http.ErrServerClosed is the expected shutdown result.
+func (server *HTTPServer) Serve(ctx context.Context) error {
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), server.ShutdownTimeout)
+		defer cancel()
+
+		shutdownErr := server.Shutdown(shutdownCtx)
+		err := <-serveErr
+		if shutdownErr != nil {
+			return shutdownErr
+		}
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
 	}
 }

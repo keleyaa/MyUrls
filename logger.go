@@ -28,6 +28,13 @@ func InitLogger() {
 	initZapLogger()
 }
 
+// SyncLogger flushes buffered log entries when the process exits.
+func SyncLogger() {
+	if logger != nil {
+		_ = logger.Sync()
+	}
+}
+
 // createLogPath 创建 logs 目录
 func createLogPath() error {
 	if dir, err := os.Getwd(); err == nil {
