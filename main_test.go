@@ -24,7 +24,7 @@ func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, 
 			syncs.Add(1)
 			return nil
 		},
-		InitRedis: func(Config) {},
+		InitRedis: func(Config) error { return nil },
 		CloseRedis: func() error {
 			closes.Add(1)
 			return nil
@@ -54,11 +54,23 @@ func TestRuntimeExitCodeReturnsFailureAfterRedisStartupFailure(t *testing.T) {
 	assert.Zero(t, signals.Load())
 }
 
+func TestRuntimeExitCodeReturnsFailureWhenRedisOptionsAreInvalid(t *testing.T) {
+	dependencies, closes, syncs := testRuntimeDependencies(t)
+	dependencies.InitRedis = func(Config) error { return errInvalidRedisURL }
+
+	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
+	assert.Zero(t, closes.Load())
+	assert.Equal(t, int32(1), syncs.Load())
+}
+
 func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(t *testing.T) {
 	var events []string
 	dependencies, _, _ := testRuntimeDependencies(t)
 	dependencies.InitLogger = func() { events = append(events, "logger") }
-	dependencies.InitRedis = func(Config) { events = append(events, "redis") }
+	dependencies.InitRedis = func(Config) error {
+		events = append(events, "redis")
+		return nil
+	}
 	dependencies.PingRedis = func(context.Context) error {
 		events = append(events, "ping")
 		return nil

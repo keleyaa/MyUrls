@@ -153,6 +153,7 @@ export MYURLS_RATE_LIMIT_BURST=4
 | `MYURLS_PROTO` | `https` | 应用、Compose | 生成短链接时使用的协议 |
 | `MYURLS_REDIS_CONN` | `myurls-redis:6379` | 应用、Compose | Redis 地址；Compose 内使用服务名 |
 | `MYURLS_REDIS_PASSWORD` | 空 | 应用、Compose | Redis 密码；部署时应使用强随机秘密 |
+| `MYURLS_REDIS_URL` | 空 | 应用 | 托管 Redis 的 `redis://` / `rediss://` URI；非空时优先于旧地址和密码变量 |
 | `MYURLS_REDIS_DATA_PATH` | `./data/redis` | Compose | Redis 宿主机持久化目录 |
 | `MYURLS_API_TOKEN` | 空 | 应用、Compose | `POST /short` 的可选 Bearer Token；空值关闭鉴权 |
 | `MYURLS_RATE_LIMIT_RPS` | `5` | 应用、Compose | 每秒补充令牌数；`0` 关闭限流 |
@@ -167,6 +168,9 @@ export MYURLS_RATE_LIMIT_BURST=4
 
 所有时长使用 Go duration 格式，例如 `500ms`、`10s`、`2m`。完整配置和故障处理见
 [运维指南](docs/operations.md)。
+
+`MYURLS_REDIS_URL` 支持 URI 中的用户名、密码和数据库编号（0–15）。`rediss://`
+会启用 TLS。解析失败时程序只返回固定错误，不在错误或日志中回显包含凭据的 URI。
 
 ## GHCR 镜像
 

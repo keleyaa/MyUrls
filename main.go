@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -46,7 +45,7 @@ const (
 type RuntimeDependencies struct {
 	InitLogger         func()
 	SyncLogger         func() error
-	InitRedis          func(Config)
+	InitRedis          func(Config) error
 	PingRedis          func(context.Context) error
 	CloseRedis         func() error
 	CloseRequestLogger func() error
@@ -60,8 +59,13 @@ func productionRuntimeDependencies() RuntimeDependencies {
 	return RuntimeDependencies{
 		InitLogger: InitLogger,
 		SyncLogger: SyncLogger,
-		InitRedis: func(cfg Config) {
-			initRedisClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: 0})
+		InitRedis: func(cfg Config) error {
+			options, err := BuildRedisOptions(cfg)
+			if err != nil {
+				return err
+			}
+			initRedisClient(options)
+			return nil
 		},
 		PingRedis: func(ctx context.Context) error {
 			client := GetRedisClient()
@@ -112,7 +116,9 @@ func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDepende
 		}
 	}()
 
-	dependencies.InitRedis(cfg)
+	if err = dependencies.InitRedis(cfg); err != nil {
+		return errors.New("initialize Redis client failed")
+	}
 	defer func() {
 		if closeErr := dependencies.CloseRedis(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("close redis: %w", closeErr))

@@ -23,6 +23,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, "localhost:8080", cfg.Domain)
 	assert.Equal(t, "https", cfg.Proto)
 	assert.Equal(t, "localhost:6379", cfg.RedisAddr)
+	assert.Empty(t, cfg.RedisURL)
 	assert.Empty(t, cfg.RedisPassword)
 	assert.Empty(t, cfg.APIToken)
 	assert.Zero(t, cfg.RateLimitRPS)
@@ -61,6 +62,7 @@ func TestLoadConfigEnvironmentOverridesFlags(t *testing.T) {
 		"MYURLS_DOMAIN":              "links.example.com",
 		"MYURLS_PROTO":               "http",
 		"MYURLS_REDIS_CONN":          "cache:6379",
+		"MYURLS_REDIS_URL":           "rediss://app:secret@managed.internal:6380/1",
 		"MYURLS_REDIS_PASSWORD":      "env-secret",
 		"MYURLS_API_TOKEN":           "token",
 		"MYURLS_RATE_LIMIT_RPS":      "2.5",
@@ -80,6 +82,7 @@ func TestLoadConfigEnvironmentOverridesFlags(t *testing.T) {
 	assert.Equal(t, "links.example.com", cfg.Domain)
 	assert.Equal(t, "http", cfg.Proto)
 	assert.Equal(t, "cache:6379", cfg.RedisAddr)
+	assert.Equal(t, "rediss://app:secret@managed.internal:6380/1", cfg.RedisURL)
 	assert.Equal(t, "env-secret", cfg.RedisPassword)
 	assert.Equal(t, "token", cfg.APIToken)
 	assert.Equal(t, 2.5, cfg.RateLimitRPS)
@@ -110,4 +113,12 @@ func TestLoadConfigRejectsInvalidValues(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestLoadConfigRejectsInvalidRedisURLWithoutLeakingCredentials(t *testing.T) {
+	_, err := LoadConfig(nil, mapLookup(map[string]string{
+		"MYURLS_REDIS_URL": "http://user:super-secret@cache.internal:6379/0",
+	}))
+	require.EqualError(t, err, "invalid Redis URL")
+	assert.NotContains(t, err.Error(), "super-secret")
 }

@@ -13,6 +13,7 @@ type Config struct {
 	Domain         string
 	Proto          string
 	RedisAddr      string
+	RedisURL       string
 	RedisPassword  string
 	APIToken       string
 	RateLimitRPS   float64
@@ -88,6 +89,7 @@ func applyEnvironment(cfg *Config, lookup LookupEnv) error {
 	setString("MYURLS_DOMAIN", &cfg.Domain)
 	setString("MYURLS_PROTO", &cfg.Proto)
 	setString("MYURLS_REDIS_CONN", &cfg.RedisAddr)
+	setString("MYURLS_REDIS_URL", &cfg.RedisURL)
 	setString("MYURLS_REDIS_PASSWORD", &cfg.RedisPassword)
 	setString("MYURLS_API_TOKEN", &cfg.APIToken)
 
@@ -155,6 +157,9 @@ func applyDuration(lookup LookupEnv, name string, target *time.Duration) error {
 }
 
 func (cfg Config) validate() error {
+	if _, err := BuildRedisOptions(cfg); err != nil {
+		return err
+	}
 	if cfg.RateLimitRPS < 0 {
 		return errors.New("rate limit RPS cannot be negative")
 	}
