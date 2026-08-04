@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -29,6 +30,8 @@ const (
 	logFileMaxAge     = 7     // 日志文件最长保留天数
 	logFileCompress   = false // 是否压缩备份文件
 )
+
+var chinaStandardTime = time.FixedZone("CST", 8*60*60)
 
 func InitLogger() {
 	// 创建 logs 目录
@@ -88,7 +91,9 @@ func initZapLogger() {
 
 // getEncoder 获取 zap encoder
 func getEncoder() zapcore.Encoder {
-	return zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+	config := zap.NewDevelopmentEncoderConfig()
+	config.EncodeTime = encodeChinaTime
+	return zapcore.NewConsoleEncoder(config)
 }
 
 // initGinLogger 初始化 gin logger
@@ -118,7 +123,7 @@ func initGinLogger() *zap.Logger {
 	writeSyncer := zapcore.AddSync(lumberJackLogger)
 
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoderConfig.EncodeTime = encodeChinaTime
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	encoderConfig.EncodeCaller = nil
 	encoderConfig.EncodeDuration = zapcore.SecondsDurationEncoder
@@ -166,21 +171,46 @@ func closeRequestLog(syncFunc func() error, closeFunc func() error) error {
 
 // initServiceLogger 初始化服务日志
 func initServiceLogger() gin.HandlerFunc {
-	_logger := initGinLogger()
+	return serviceLoggerMiddleware(initGinLogger())
+}
+
+func formatChinaTime(value time.Time) string {
+	return value.In(chinaStandardTime).Format(time.RFC3339Nano)
+}
+
+func encodeChinaTime(value time.Time, encoder zapcore.PrimitiveArrayEncoder) {
+	encoder.AppendString(formatChinaTime(value))
+}
+
+func privacySafeRoute(fullPath string) string {
+	if fullPath == "" {
+		return "unmatched"
+	}
+	return fullPath
+}
+
+func shouldLogRequest(route string, status int) bool {
+	return route != "/healthz" || status >= http.StatusBadRequest
+}
+
+func serviceLoggerMiddleware(requestLog *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		path := c.Request.URL.Path
 
 		c.Next()
 
-		_logger.Info(
+		route := privacySafeRoute(c.FullPath())
+		status := c.Writer.Status()
+		if !shouldLogRequest(route, status) {
+			return
+		}
+
+		requestLog.Info(
 			"request",
-			zap.String("time", start.Format(time.RFC3339)),
+			zap.String("time", formatChinaTime(start)),
 			zap.String("method", c.Request.Method),
-			zap.String("ip", c.ClientIP()),
-			zap.String("user-agent", c.Request.UserAgent()),
-			zap.String("path", path),
-			zap.Int("status", c.Writer.Status()),
+			zap.String("route", route),
+			zap.Int("status", status),
 			zap.Duration("latency", time.Since(start)),
 		)
 	}

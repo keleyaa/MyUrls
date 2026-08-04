@@ -56,7 +56,17 @@ Redis 启动参数中启用 `requirepass`；拥有 Docker 管理权限的用户�
 ## 日志
 
 应用访问日志写入 Compose 管理的 `myurls-logs` volume；容器运行状态和启动错误通过
-标准输出查看。Redis 日志写入其标准输出。
+标准输出查看。Redis 日志写入其标准输出。镜像和应用日志统一使用 `Asia/Shanghai`
+（UTC+8），时间字段采用带 `+08:00` 偏移的 RFC 3339 格式。
+
+访问日志只记录请求方法、Gin 路由模板、状态码和耗时。真实短码统一显示为
+`/:shortKey`，未匹配地址显示为 `unmatched`；不会记录客户端 IP、User-Agent、Query、
+请求体或 Authorization。成功的 `/healthz` 不写访问日志，HTTP 4xx/5xx 健康检查仍会
+保留，因此健康状态变化可诊断而不会每 30 秒制造一条成功记录。
+
+Compose 的 `json-file` 日志轮转限制为单文件 10 MB、最多 3 个文件。应用内部
+`access.log` 由 Lumberjack 独立轮转，单文件 50 MB、最多 10 个备份、最长保留 7 天。
+这两套限制分别约束容器标准输出和应用访问日志，不能互相替代。
 
 ```sh
 docker compose logs --tail=200 myurls
@@ -64,8 +74,9 @@ docker compose logs --tail=200 myurls-redis
 docker compose logs --follow --since=10m
 ```
 
-不要把完整请求授权头、Redis 密码或 `.env` 内容粘贴到工单。检查日志 volume 位置时可
-使用 `docker volume inspect`，但应通过备份策略而不是手工修改该目录。
+不要把完整请求授权头、Redis 密码、API Token、真实短码、长链接或 `.env` 内容粘贴到
+工单。检查日志 volume 位置时可使用 `docker volume inspect`，但应通过备份策略而不是
+手工修改该目录。
 
 ## 健康检查
 

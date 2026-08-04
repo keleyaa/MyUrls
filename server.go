@@ -25,7 +25,8 @@ type HTTPServer struct {
 
 // NewRouter builds the application's HTTP routes.
 func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(initServiceLogger())
 
 	router.LoadHTMLGlob("public/*.html")

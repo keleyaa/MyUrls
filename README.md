@@ -55,6 +55,12 @@ Compose 管理的 `myurls-logs` volume。停止服务：
 docker compose down
 ```
 
+容器和应用日志统一使用 `Asia/Shanghai`（UTC+8）。访问日志仅保留方法、Gin 路由模板、
+状态码和耗时；真实短码显示为 `/:shortKey`，不记录 IP、User-Agent、Query、请求体或
+Authorization。成功的 `/healthz` 不写访问日志，失败检查仍会保留。Compose 将每个容器
+标准输出日志限制为单文件 10 MB、最多 3 个文件；应用自己的 `access.log` 仍按 50 MB、
+10 个备份和 7 天期限轮转。
+
 升级、备份和恢复前请先阅读[运维指南](docs/operations.md)，不要直接删除 Redis 数据目录。
 
 ## 直接连接本地 Redis

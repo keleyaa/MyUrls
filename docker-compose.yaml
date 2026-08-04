@@ -1,8 +1,15 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   myurls:
     build: .
     restart: unless-stopped
     environment:
+      TZ: Asia/Shanghai
       MYURLS_PORT: ${MYURLS_PORT:-8080}
       MYURLS_DOMAIN: ${MYURLS_DOMAIN:-example.com}
       MYURLS_PROTO: ${MYURLS_PROTO:-https}
@@ -30,11 +37,13 @@ services:
     cap_drop:
       - ALL
     stop_grace_period: ${MYURLS_STOP_GRACE_PERIOD:-20s}
+    logging: *default-logging
 
   myurls-redis:
     image: redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236
     restart: unless-stopped
     environment:
+      TZ: Asia/Shanghai
       MYURLS_REDIS_PASSWORD: ${MYURLS_REDIS_PASSWORD:-}
     command:
       - /bin/sh
@@ -60,6 +69,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging: *default-logging
 
 volumes:
   myurls-logs:
