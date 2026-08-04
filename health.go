@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -37,11 +38,14 @@ func RunHealthcheck(ctx context.Context, port string) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/healthz", nil)
 	if err != nil {
-		return fmt.Errorf("create healthcheck request: %w", err)
+		return errors.New("create healthcheck request failed")
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("request healthcheck: %w", err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("healthcheck request canceled: %w", context.Canceled)
+		}
+		return errors.New("healthcheck request failed")
 	}
 	defer response.Body.Close()
 

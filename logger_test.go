@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -33,6 +34,22 @@ func TestCreateLogPathReturnsWorkingDirectoryError(t *testing.T) {
 	assert.NoError(t, os.Remove(removedDirectory))
 
 	assert.Error(t, createLogPath())
+}
+
+func TestLoggerPathErrorsDoNotIncludeWorkingDirectory(t *testing.T) {
+	originalDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.Chdir(originalDirectory)) })
+
+	parent := t.TempDir()
+	removedDirectory := filepath.Join(parent, "private-working-directory")
+	require.NoError(t, os.Mkdir(removedDirectory, 0o755))
+	require.NoError(t, os.Chdir(removedDirectory))
+	require.NoError(t, os.Remove(removedDirectory))
+
+	_, err = getLogPath()
+	require.EqualError(t, err, "get working directory failed")
+	assert.NotContains(t, err.Error(), "private-working-directory")
 }
 
 func TestCreateLogPathTightensExistingDirectoryPermissions(t *testing.T) {

@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, *atomic.Int32) {
@@ -141,6 +143,22 @@ func TestRunApplicationJoinsCleanupErrorsAndLogsBeforeSync(t *testing.T) {
 	assert.ErrorIs(t, err, redisCloseErr)
 	assert.ErrorIs(t, err, syncErr)
 	assert.Equal(t, []string{"request-close", "redis-close", "log", "sync"}, events)
+}
+
+func TestProductionRuntimeFailureLogDoesNotIncludeUnderlyingError(t *testing.T) {
+	originalLogger := logger
+	core, observed := observer.New(zap.ErrorLevel)
+	logger = zap.New(core).Sugar()
+	t.Cleanup(func() { logger = originalLogger })
+
+	productionRuntimeDependencies().LogError(errors.New("redis://user:super-secret@cache.internal:6379/0"))
+
+	entries := observed.All()
+	if assert.Len(t, entries, 1) {
+		assert.Equal(t, "application stopped", entries[0].Message)
+		assert.Empty(t, entries[0].Context)
+		assert.NotContains(t, entries[0].Message, "super-secret")
+	}
 }
 
 func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {

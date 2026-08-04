@@ -46,6 +46,7 @@ func TestDocumentationExplainsPrivacySafeLogging(t *testing.T) {
 		assert.Contains(t, content, "Asia/Shanghai", path)
 		assert.Contains(t, content, "路由模板", path)
 		assert.Contains(t, content, "成功的 `/healthz`", path)
+		assert.Contains(t, content, "固定事件", path)
 		assert.Contains(t, content, "10 MB", path)
 		assert.Contains(t, content, "3 个", path)
 	}

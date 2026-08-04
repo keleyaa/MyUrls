@@ -82,7 +82,8 @@ func TestRunHealthcheckAcceptsOnlyOK(t *testing.T) {
 		port := listener.Addr().(*net.TCPAddr).Port
 		require.NoError(t, listener.Close())
 
-		assert.Error(t, RunHealthcheck(t.Context(), strconv.Itoa(port)))
+		err = RunHealthcheck(t.Context(), strconv.Itoa(port))
+		assert.EqualError(t, err, "healthcheck request failed")
 	})
 }
 

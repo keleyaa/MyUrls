@@ -26,7 +26,9 @@ func ShortToLongHandler() gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			logger.Warnw("failed to get long URL", "shortKey", shortKey, "error", err)
+			if logger != nil {
+				logger.Warn("failed to resolve short URL")
+			}
 			resp.Code = ResponseCodeServerError
 			resp.Msg = "failed to get long URL"
 
@@ -65,7 +67,6 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			}
 			resp.Code = ResponseCodeParamsCheckError
 			resp.Msg = "invalid parameters"
-			logger.Warn("invalid parameters: ", err.Error())
 
 			c.JSON(200, resp)
 			return
@@ -89,14 +90,15 @@ func LongToShortHandler(cfg Config) gin.HandlerFunc {
 			resp.Code = ResponseCodeParamsCheckError
 			resp.Msg = "short key already exists, please use another one or leave it empty to generate automatically"
 
-			logger.Info("short key already exists: ", req.ShortKey)
 			c.JSON(200, resp)
 			return
 		}
 		if err != nil {
 			resp.Code = ResponseCodeServerError
 			resp.Msg = "failed to create short URL"
-			logger.Warn("failed to create short URL: ", err.Error())
+			if logger != nil {
+				logger.Warn("failed to create short URL")
+			}
 
 			c.JSON(200, resp)
 			return

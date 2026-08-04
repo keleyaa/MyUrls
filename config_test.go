@@ -115,6 +115,21 @@ func TestLoadConfigRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDoesNotEchoInvalidEnvironmentValues(t *testing.T) {
+	const secret = "super-secret-value"
+	for name, env := range map[string]map[string]string{
+		"float":    {"MYURLS_RATE_LIMIT_RPS": secret},
+		"integer":  {"MYURLS_RATE_LIMIT_BURST": secret},
+		"duration": {"MYURLS_READ_TIMEOUT": secret},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadConfig(nil, mapLookup(env))
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), secret)
+		})
+	}
+}
+
 func TestLoadConfigRejectsInvalidRedisURLWithoutLeakingCredentials(t *testing.T) {
 	_, err := LoadConfig(nil, mapLookup(map[string]string{
 		"MYURLS_REDIS_URL": "http://user:super-secret@cache.internal:6379/0",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -14,8 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func recordLifecycleEvent(sequence *atomic.Int64) int64 {
@@ -38,6 +42,38 @@ func TestManropeFontIsServedLocally(t *testing.T) {
 	license, err := os.ReadFile("public/fonts/OFL.txt")
 	require.NoError(t, err)
 	assert.Contains(t, string(license), "SIL OPEN FONT LICENSE Version 1.1")
+}
+
+func TestPrivacySafeRecoveryDoesNotWriteRawRequestsToGinOutput(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	var defaultErrorOutput bytes.Buffer
+	originalErrorWriter := gin.DefaultErrorWriter
+	originalLogger := logger
+	core, observed := observer.New(zap.ErrorLevel)
+	gin.DefaultErrorWriter = &defaultErrorOutput
+	logger = zap.New(core).Sugar()
+	t.Cleanup(func() {
+		gin.DefaultErrorWriter = originalErrorWriter
+		logger = originalLogger
+	})
+
+	router := gin.New()
+	router.Use(privacySafeRecovery())
+	router.GET("/:shortKey", func(*gin.Context) { panic("request failure") })
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(
+		http.MethodGet,
+		"/private-short-code?url=https%3A%2F%2Fsecret.example%2Fsubscription",
+		nil,
+	))
+
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	assert.Empty(t, defaultErrorOutput.String())
+	entries := observed.All()
+	if assert.Len(t, entries, 1) {
+		assert.Equal(t, "request panic recovered", entries[0].Message)
+		assert.Empty(t, entries[0].Context)
+	}
 }
 
 func TestLuminousFocusStylesContract(t *testing.T) {

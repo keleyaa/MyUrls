@@ -59,7 +59,9 @@ docker compose down
 状态码和耗时；真实短码显示为 `/:shortKey`，不记录 IP、User-Agent、Query、请求体或
 Authorization。成功的 `/healthz` 不写访问日志，失败检查仍会保留。Compose 将每个容器
 标准输出日志限制为单文件 10 MB、最多 3 个文件；应用自己的 `access.log` 仍按 50 MB、
-10 个备份和 7 天期限轮转。
+10 个备份和 7 天期限轮转。业务异常、运行期停止与 panic 恢复日志只记录固定事件，不回显
+短码、长链接、Token、Redis 地址、底层错误文本或请求头；无效数值配置和本地健康检查失败
+也不会输出原始配置值或网络错误。
 
 升级、备份和恢复前请先阅读[运维指南](docs/operations.md)，不要直接删除 Redis 数据目录。
 

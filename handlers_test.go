@@ -15,6 +15,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestLongToShortHandler(t *testing.T) {
@@ -139,6 +141,10 @@ func TestShortToLongHandler(t *testing.T) {
 func TestShortToLongHandlerReturnsInternalServerErrorWithoutRedisDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	InitLogger()
+	originalLogger := logger
+	core, observed := observer.New(zap.WarnLevel)
+	logger = zap.New(core).Sugar()
+	t.Cleanup(func() { logger = originalLogger })
 	resetRedisClient(t)
 
 	server, err := miniredis.Run()
@@ -158,4 +164,44 @@ func TestShortToLongHandlerReturnsInternalServerErrorWithoutRedisDetails(t *test
 	assert.Equal(t, ResponseCodeServerError, payload.Code)
 	assert.Equal(t, "failed to get long URL", payload.Msg)
 	assert.NotContains(t, payload.Msg, "connection refused")
+
+	entries := observed.All()
+	if assert.Len(t, entries, 1) {
+		assert.Equal(t, "failed to resolve short URL", entries[0].Message)
+		assert.Empty(t, entries[0].Context)
+	}
+}
+
+func TestLongToShortHandlerDoesNotLogConflictingShortKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalLogger := logger
+	core, observed := observer.New(zap.InfoLevel)
+	logger = zap.New(core).Sugar()
+	t.Cleanup(func() { logger = originalLogger })
+	resetRedisClient(t)
+	initRedisClient(newTestRedisOptions(t))
+
+	const sensitiveShortKey = "private-short-code"
+	require.NoError(t, LongToShort(t.Context(), &LongToShortOptions{
+		ShortKey:   sensitiveShortKey,
+		URL:        "https://example.com/first",
+		expiration: time.Hour,
+	}))
+
+	router := gin.New()
+	router.POST("/short", LongToShortHandler(defaultConfig()))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/short",
+		strings.NewReader(url.Values{
+			"longUrl":  {"https://example.com/second"},
+			"shortKey": {sensitiveShortKey},
+		}.Encode()),
+	)
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Empty(t, observed.All())
 }

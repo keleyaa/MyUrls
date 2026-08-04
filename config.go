@@ -124,7 +124,7 @@ func applyFloat(lookup LookupEnv, name string, target *float64) error {
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", name, err)
+		return fmt.Errorf("invalid %s", name)
 	}
 	*target = parsed
 	return nil
@@ -137,7 +137,7 @@ func applyInt(lookup LookupEnv, name string, target *int) error {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", name, err)
+		return fmt.Errorf("invalid %s", name)
 	}
 	*target = parsed
 	return nil
@@ -150,7 +150,7 @@ func applyDuration(lookup LookupEnv, name string, target *time.Duration) error {
 	}
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", name, err)
+		return fmt.Errorf("invalid %s", name)
 	}
 	*target = parsed
 	return nil

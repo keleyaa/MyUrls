@@ -36,7 +36,7 @@ var chinaStandardTime = time.FixedZone("CST", 8*60*60)
 func InitLogger() {
 	// 创建 logs 目录
 	if err := createLogPath(); err != nil {
-		panic("create log path failed: " + err.Error())
+		panic("create log path failed")
 	}
 
 	// 初始化 zap logger
@@ -76,7 +76,7 @@ func createLogPath() error {
 func getLogPath() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
+		return "", errors.New("get working directory failed")
 	}
 	return filepath.Join(dir, "logs"), nil
 }
@@ -106,7 +106,7 @@ func initGinLogger() *zap.Logger {
 
 	logPath, err := getLogPath()
 	if err != nil {
-		panic("get log path failed: " + err.Error())
+		panic("get log path failed")
 	}
 	logFileName := "access.log"
 

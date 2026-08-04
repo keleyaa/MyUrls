@@ -19,12 +19,12 @@ func main() {
 		return
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "invalid configuration")
 		os.Exit(2)
 	}
 	if cfg.Healthcheck {
 		if err := RunHealthcheck(context.Background(), cfg.Port); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, "healthcheck failed")
 			os.Exit(1)
 		}
 		return
@@ -76,9 +76,9 @@ func productionRuntimeDependencies() RuntimeDependencies {
 		},
 		CloseRedis:         CloseRedisClient,
 		CloseRequestLogger: CloseRequestLogger,
-		LogError: func(err error) {
+		LogError: func(error) {
 			if logger != nil {
-				logger.Errorw("application stopped", "error", err)
+				logger.Error("application stopped")
 			}
 		},
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
@@ -105,14 +105,11 @@ func RuntimeExitCode(ctx context.Context, cfg Config, dependencies RuntimeDepend
 func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDependencies) (err error) {
 	dependencies.InitLogger()
 	defer func() {
-		if syncErr := dependencies.SyncLogger(); syncErr != nil {
-			err = errors.Join(err, fmt.Errorf("sync logger: %w", syncErr))
-			fmt.Fprintln(os.Stderr, err)
-		}
-	}()
-	defer func() {
 		if err != nil {
 			dependencies.LogError(err)
+		}
+		if syncErr := dependencies.SyncLogger(); syncErr != nil {
+			err = errors.Join(err, fmt.Errorf("sync logger: %w", syncErr))
 		}
 	}()
 

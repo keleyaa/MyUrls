@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -23,10 +24,23 @@ type HTTPServer struct {
 	shutdown        func(context.Context) error
 }
 
+// privacySafeRecovery prevents Gin's default recovery logger from writing a
+// request dump. Request lines, query strings, and headers can contain short
+// URLs or credentials, so recovery output is deliberately reduced to a fixed
+// application event.
+func privacySafeRecovery() gin.HandlerFunc {
+	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		if logger != nil {
+			logger.Error("request panic recovered")
+		}
+		c.AbortWithStatus(http.StatusInternalServerError)
+	})
+}
+
 // NewRouter builds the application's HTTP routes.
 func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Recovery())
+	router.Use(privacySafeRecovery())
 	router.Use(initServiceLogger())
 
 	router.LoadHTMLGlob("public/*.html")
