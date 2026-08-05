@@ -183,14 +183,17 @@ export MYURLS_RATE_LIMIT_BURST=4
 ## GHCR 镜像
 
 发布工作流只在扁平的 `v*` Git 标签或手动运行时构建 `ghcr.io/keleyaa/myurls`；标签中
-含 `/` 不会触发当前发布规则。它发布实际 version 标签和完整 Git commit SHA 标签，
-不发布或承诺 `latest`。Git 标签含 OCI 非法字符（例如 `+`）或过长时，工作流会转换
-version 标签；必须从 workflow summary 读取实际值。使用前先在仓库 Packages 页面确认
-目标标签已经存在，例如：
+含 `/` 不会触发当前发布规则。它总会发布实际 version 标签和完整 Git commit SHA 标签。
+只有推送完整稳定标签 `vX.Y.Z`（例如 `v1.2.3`）时才会把 `latest` 移动到同一 digest；
+手动运行和预发布标签（例如 `v1.2.3-rc.1`）不会改变 `latest`。Git 标签含 OCI 非法字符
+（例如 `+`）或过长时，工作流会转换 version 标签；必须从 workflow summary 读取实际值。
+首次稳定发行成功前，`latest` 不存在。使用前先在仓库 Packages 页面确认目标标签已经存在，例如：
 
 ```sh
 docker pull ghcr.io/keleyaa/myurls:v1.2.3
 docker pull ghcr.io/keleyaa/myurls:0123456789abcdef0123456789abcdef01234567
+# 仅在完整稳定发行成功后可用：
+docker pull ghcr.io/keleyaa/myurls:latest
 ```
 
 仓库的 `docker-compose.yaml` 默认使用本地 `build`。使用 GHCR 镜像部署时，请按

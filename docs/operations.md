@@ -526,7 +526,8 @@ export MYURLS_IMAGE=ghcr.io/keleyaa/myurls:v1.2.3
 发布 Git 标签必须是以 `v` 开头的扁平标签，例如 `v1.2.3`；含 `/` 不会触发当前
 `v*` 发布规则。即使工作流被触发，Git 标签含 OCI 非法字符（例如 `+`）或超过长度
 限制时也会被转换。必须从 workflow summary 复制实际 version 标签；工作流同时发布
-完整 Git commit SHA 标签，不发布 `latest`。
+完整 Git commit SHA 标签。只有推送完整稳定标签 `vX.Y.Z` 时，`latest` 才移动到同一
+digest；手动运行和预发布标签不会改变它。首次稳定发行成功前不要引用 `latest`。
 
 ## digest 回滚
 

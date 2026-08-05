@@ -39,8 +39,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare safe image version tag
-        id: image_tag
+      - name: Prepare image tags
+        id: image_tags
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -73,7 +73,22 @@ jobs:
             echo 'Failed to produce a valid OCI image tag.' >&2
             exit 1
           fi
-          printf 'version_tag=%s\n' "${version_tag}" >> "${GITHUB_OUTPUT}"
+          tags="ghcr.io/keleyaa/myurls:${version_tag}"
+          tags="${tags}"$'\n'"ghcr.io/keleyaa/myurls:${GITHUB_SHA}"
+          stable_tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          publish_latest=false
+          if [[ "${EVENT_NAME}" == 'push' && "${REF_NAME}" =~ ${stable_tag_pattern} ]]; then
+            tags="${tags}"$'\n'"ghcr.io/keleyaa/myurls:latest"
+            publish_latest=true
+          fi
+
+          {
+            printf 'version_tag=%s\n' "${version_tag}"
+            printf 'publish_latest=%s\n' "${publish_latest}"
+            printf 'tags<<EOF\n'
+            printf '%s\n' "${tags}"
+            printf 'EOF\n'
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Build and publish image
         id: build
@@ -82,9 +97,7 @@ jobs:
           context: .
           platforms: linux/386,linux/amd64,linux/arm64,linux/ppc64le,linux/arm/v7
           push: true
-          tags: |
-            ghcr.io/keleyaa/myurls:${{ steps.image_tag.outputs.version_tag }}
-            ghcr.io/keleyaa/myurls:${{ github.sha }}
+          tags: ${{ steps.image_tags.outputs.tags }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha
@@ -93,10 +106,16 @@ jobs:
       - name: Publish image digest summary
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-          VERSION_TAG: ${{ steps.image_tag.outputs.version_tag }}
+          VERSION_TAG: ${{ steps.image_tags.outputs.version_tag }}
+          PUBLISH_LATEST: ${{ steps.image_tags.outputs.publish_latest }}
         run: |
           printf '### GHCR image published\n\n' >> "${GITHUB_STEP_SUMMARY}"
           printf -- '- Image: `ghcr.io/keleyaa/myurls`\n' >> "${GITHUB_STEP_SUMMARY}"
           printf -- '- Version tag: `%s`\n' "${VERSION_TAG}" >> "${GITHUB_STEP_SUMMARY}"
           printf -- '- Commit tag: `%s`\n' "${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${PUBLISH_LATEST}" == true ]]; then
+            printf -- '- Stable tag: `latest` moved to this digest\n' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf -- '- Stable tag: `latest` unchanged\n' >> "${GITHUB_STEP_SUMMARY}"
+          fi
           printf -- '- Digest: `%s`\n' "${IMAGE_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"

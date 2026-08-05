@@ -37,6 +37,20 @@ func TestComposeDefinesChinaTimezoneForEveryService(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(string(compose), "TZ: Asia/Shanghai"))
 }
 
+func TestImagePublishWorkflowMovesLatestOnlyForStableTagReleases(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/docker_build_push.yml")
+	assert.NoError(t, err)
+	content := string(workflow)
+
+	assert.Contains(t, content, "stable_tag_pattern")
+	assert.Contains(t, content, "publish_latest")
+	assert.Contains(t, content, "ghcr.io/keleyaa/myurls:latest")
+	assert.Contains(t, content, "steps.image_tags.outputs.tags")
+	assert.Contains(t, content, `if [[ "${EVENT_NAME}" == 'push' && "${REF_NAME}" =~ ${stable_tag_pattern} ]]; then`)
+	assert.Contains(t, content, `tags="${tags}"$'\n'"ghcr.io/keleyaa/myurls:latest"`)
+	assert.Contains(t, content, "steps.image_tags.outputs.publish_latest")
+}
+
 func TestDocumentationExplainsPrivacySafeLogging(t *testing.T) {
 	for _, path := range []string{"README.md", "docs/operations.md"} {
 		contentBytes, err := os.ReadFile(path)
