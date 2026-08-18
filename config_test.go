@@ -99,6 +99,14 @@ func TestLoadConfigEnvironmentOverridesFlags(t *testing.T) {
 	assert.Equal(t, 13*time.Second, cfg.ShutdownTimeout)
 }
 
+func TestLoadConfigAllowsEmptyBaseURL(t *testing.T) {
+	cfg, err := LoadConfig(nil, mapLookup(map[string]string{
+		"MYURLS_BASE_URL": "",
+	}))
+	require.NoError(t, err)
+	assert.Nil(t, cfg.BaseURL)
+}
+
 func TestLoadConfigRejectsInvalidValues(t *testing.T) {
 	tests := []struct {
 		name string

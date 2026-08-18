@@ -91,7 +91,7 @@ func applyEnvironment(cfg *Config, lookup LookupEnv) error {
 	setString("MYURLS_PORT", &cfg.Port)
 	setString("MYURLS_DOMAIN", &cfg.Domain)
 	setString("MYURLS_PROTO", &cfg.Proto)
-	if value, ok := lookup("MYURLS_BASE_URL"); ok {
+	if value, ok := lookup("MYURLS_BASE_URL"); ok && value != "" {
 		baseURL, err := parseBaseURL(value)
 		if err != nil {
 			return err

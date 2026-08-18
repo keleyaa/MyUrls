@@ -33,10 +33,10 @@ func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, 
 			syncs.Add(1)
 			return nil
 		},
-		OpenStore: func(Config) (*Store, error) { return store, nil },
-		LogError:  func(error) {},
-		NewApp:             NewApp,
-		NewHTTPServer:      NewHTTPServer,
+		OpenStore:     func(Config) (*Store, error) { return store, nil },
+		LogError:      func(error) {},
+		NewApp:        NewApp,
+		NewHTTPServer: NewHTTPServer,
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
 			return context.WithCancel(parent)
 		},
