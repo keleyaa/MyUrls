@@ -2,6 +2,8 @@ name: Publish GHCR image
 
 on:
   push:
+    branches:
+      - master
     tags:
       # Release tags intentionally use a flat version namespace; '/' is unsupported.
       - 'v*'
