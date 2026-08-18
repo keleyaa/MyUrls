@@ -26,10 +26,14 @@ func recordLifecycleEvent(sequence *atomic.Int64) int64 {
 	return sequence.Add(1)
 }
 
+func newTestRouter(t testing.TB) *gin.Engine {
+	t.Helper()
+	store, _ := newTestStore(t)
+	return NewApp(defaultConfig(), store).Router()
+}
+
 func TestManropeFontIsServedLocally(t *testing.T) {
-	router := NewRouter(defaultConfig(), Dependencies{
-		Ping: func(context.Context) error { return nil },
-	})
+	router := newTestRouter(t)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(
 		http.MethodGet,
@@ -77,9 +81,7 @@ func TestPrivacySafeRecoveryDoesNotWriteRawRequestsToGinOutput(t *testing.T) {
 }
 
 func TestLuminousFocusStylesContract(t *testing.T) {
-	router := NewRouter(defaultConfig(), Dependencies{
-		Ping: func(context.Context) error { return nil },
-	})
+	router := newTestRouter(t)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/styles.css", nil))
 
@@ -146,9 +148,7 @@ func TestLuminousFocusStylesContract(t *testing.T) {
 }
 
 func TestLuminousFocusDocumentContract(t *testing.T) {
-	router := NewRouter(defaultConfig(), Dependencies{
-		Ping: func(context.Context) error { return nil },
-	})
+	router := newTestRouter(t)
 
 	tests := []struct {
 		path        string
@@ -228,9 +228,7 @@ func TestLuminousFocusDocumentContract(t *testing.T) {
 }
 
 func TestLuminousFocusClientScriptContract(t *testing.T) {
-	router := NewRouter(defaultConfig(), Dependencies{
-		Ping: func(context.Context) error { return nil },
-	})
+	router := newTestRouter(t)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/app.js", nil))
 

@@ -48,8 +48,8 @@ cp .env.example .env
 )
 ```
 
-访问 `http://localhost:8080/`。默认 Redis 数据保存在 `./data/redis`，日志保存在
-Compose 管理的 `myurls-logs` volume。停止服务：
+访问 `http://localhost:8080/`。默认 Redis 数据保存在 `./data/redis`；应用日志和访问日志
+均输出到容器标准输出。停止服务：
 
 ```sh
 docker compose down
@@ -57,9 +57,8 @@ docker compose down
 
 容器和应用日志统一使用 `Asia/Shanghai`（UTC+8）。访问日志仅保留方法、Gin 路由模板、
 状态码和耗时；真实短码显示为 `/:shortKey`，不记录 IP、User-Agent、Query、请求体或
-Authorization。成功的 `/healthz` 不写访问日志，失败检查仍会保留。Compose 将每个容器
-标准输出日志限制为单文件 10 MB、最多 3 个文件；应用自己的 `access.log` 仍按 50 MB、
-10 个备份和 7 天期限轮转。业务异常、运行期停止与 panic 恢复日志只记录固定事件，不回显
+Authorization。成功的 `/healthz` 不写访问日志，失败检查仍会保留。应用日志和访问日志均写入
+标准输出，Compose 使用 `json-file` 将每个容器日志限制为单文件 10 MB、最多 3 个文件。业务异常、运行期停止与 panic 恢复日志只记录固定事件，不回显
 短码、长链接、Token、Redis 地址、底层错误文本或请求头；无效数值配置和本地健康检查失败
 也不会输出原始配置值或网络错误。
 
@@ -159,9 +158,10 @@ export MYURLS_RATE_LIMIT_BURST=4
 | `MYURLS_PORT` | `8080` | 应用、Compose | HTTP 监听和宿主机映射端口 |
 | `MYURLS_DOMAIN` | `example.com` | 应用、Compose | 生成短链接时使用的域名 |
 | `MYURLS_PROTO` | `https` | 应用、Compose | 生成短链接时使用的协议 |
+| `MYURLS_BASE_URL` | 空 | 应用、Compose | 可选公开短链接基址；非空时优先于 `MYURLS_DOMAIN` 与 `MYURLS_PROTO`，可包含 path prefix |
 | `MYURLS_REDIS_CONN` | `myurls-redis:6379` | 应用、Compose | Redis 地址；Compose 内使用服务名 |
 | `MYURLS_REDIS_PASSWORD` | 空 | 应用、Compose | Redis 密码；部署时应使用强随机秘密 |
-| `MYURLS_REDIS_URL` | 空 | 应用 | 托管 Redis 的 `redis://` / `rediss://` URI；非空时优先于旧地址和密码变量 |
+| `MYURLS_REDIS_URL` | 空 | 应用、Compose | 托管 Redis 的 `redis://` / `rediss://` URI；非空时优先于旧地址和密码变量 |
 | `MYURLS_REDIS_DATA_PATH` | `./data/redis` | Compose | Redis 宿主机持久化目录 |
 | `MYURLS_API_TOKEN` | 空 | 应用、Compose | `POST /short` 的可选 Bearer Token；空值关闭鉴权 |
 | `MYURLS_RATE_LIMIT_RPS` | `5` | 应用、Compose | 每秒补充令牌数；`0` 关闭限流 |
@@ -179,6 +179,9 @@ export MYURLS_RATE_LIMIT_BURST=4
 
 `MYURLS_REDIS_URL` 支持 URI 中的用户名、密码和数据库编号（0–15）。`rediss://`
 会启用 TLS。解析失败时程序只返回固定错误，不在错误或日志中回显包含凭据的 URI。
+
+`MYURLS_BASE_URL` 仅接受无凭据、无 query 和 fragment 的绝对 HTTP(S) URL；例如
+`https://example.com/links` 会生成 `https://example.com/links/<shortKey>`。
 
 ## GHCR 镜像
 

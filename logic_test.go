@@ -1,5 +1,3 @@
-// FILEPATH: /root/CareyWang/MyUrls/logic_test.go
-
 package main
 
 import (
@@ -13,39 +11,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLongToShortAndShortToLong(t *testing.T) {
-	ctx := context.Background()
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
+func TestAppCreateAndResolveShortURL(t *testing.T) {
+	store, _ := newTestStore(t)
+	app := NewApp(defaultConfig(), store)
 
 	shortKey := "testKey"
 	longURL := "https://example.com"
 
-	err := LongToShort(ctx, &LongToShortOptions{
-		ShortKey:   shortKey,
-		URL:        longURL,
-		expiration: 60 * time.Second,
-	})
-	assert.NoError(t, err)
+	key, err := app.CreateShortURL(context.Background(), shortKey, longURL)
+	require.NoError(t, err)
+	assert.Equal(t, shortKey, key)
 
-	resultLongURL := ShortToLong(ctx, shortKey)
+	resultLongURL, err := app.ResolveShortURL(context.Background(), shortKey)
+	require.NoError(t, err)
 	assert.Equal(t, longURL, resultLongURL)
 }
 
-func TestLegacyRedisHelpersDoNotPanicWithoutClient(t *testing.T) {
-	resetRedisClient(t)
-
-	assert.Empty(t, ShortToLong(t.Context(), "key"))
-	assert.ErrorIs(t, LongToShort(t.Context(), &LongToShortOptions{ShortKey: "key", URL: "https://example.com", expiration: time.Hour}), ErrRedisClientUnavailable)
-	assert.ErrorIs(t, Renew(t.Context(), "key", time.Hour), ErrRedisClientUnavailable)
-	_, err := CheckRedisKeyIfExist(t.Context(), "key")
-	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
-}
-
-func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
+func TestAppCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 	ctx := context.Background()
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
+	store, _ := newTestStore(t)
+	app := NewApp(defaultConfig(), store)
 
 	const requestedKey = "shared-key"
 	const workers = 100
@@ -65,7 +50,7 @@ func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 			ready <- struct{}{}
 			<-start
 			url := "https://example.com/" + string(rune('a'+i%26))
-			_, err := CreateShortURL(ctx, requestedKey, url)
+			_, err := app.CreateShortURL(ctx, requestedKey, url)
 			results <- result{url: url, err: err}
 		}(i)
 	}
@@ -93,12 +78,12 @@ func TestCreateShortURLAtomicallyClaimsRequestedKey(t *testing.T) {
 
 	assert.Equal(t, 1, successes)
 	assert.Equal(t, workers-1, conflicts)
-	stored, err := ResolveShortURL(ctx, requestedKey)
+	stored, err := app.ResolveShortURL(ctx, requestedKey)
 	require.NoError(t, err)
 	assert.Equal(t, winner, stored)
 }
 
-func TestCreateShortURLRetriesGeneratedKeysAfterCollisions(t *testing.T) {
+func TestAppCreateShortURLRetriesGeneratedKeysAfterCollisions(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		keys []string
@@ -107,16 +92,16 @@ func TestCreateShortURLRetriesGeneratedKeysAfterCollisions(t *testing.T) {
 		{name: "multiple collisions", keys: []string{"taken-one", "taken-two", "taken-three", "available"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resetRedisClient(t)
-			initRedisClient(newTestRedisOptions(t))
+			store, _ := newTestStore(t)
+			app := NewApp(defaultConfig(), store)
 			for _, key := range tt.keys[:len(tt.keys)-1] {
-				created, err := StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
+				created, err := store.StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
 				require.NoError(t, err)
 				require.True(t, created)
 			}
 
 			attempts := 0
-			key, err := createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
+			key, err := app.createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
 				key := tt.keys[attempts]
 				attempts++
 				return key, nil
@@ -125,26 +110,26 @@ func TestCreateShortURLRetriesGeneratedKeysAfterCollisions(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.keys[len(tt.keys)-1], key)
 			assert.Equal(t, len(tt.keys), attempts)
-			stored, err := ResolveShortURL(t.Context(), key)
+			stored, err := app.ResolveShortURL(t.Context(), key)
 			require.NoError(t, err)
 			assert.Equal(t, "https://new.example", stored)
 		})
 	}
 }
 
-func TestCreateShortURLReturnsExhaustedAfterFiveGeneratedCollisions(t *testing.T) {
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
+func TestAppCreateShortURLReturnsExhaustedAfterFiveGeneratedCollisions(t *testing.T) {
+	store, _ := newTestStore(t)
+	app := NewApp(defaultConfig(), store)
 
 	keys := []string{"taken-one", "taken-two", "taken-three", "taken-four", "taken-five"}
 	for _, key := range keys {
-		created, err := StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
+		created, err := store.StoreShortURL(t.Context(), key, "https://existing.example", time.Hour)
 		require.NoError(t, err)
 		require.True(t, created)
 	}
 
 	attempts := 0
-	key, err := createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
+	key, err := app.createShortURL(t.Context(), "", "https://new.example", func(int) (string, error) {
 		key := keys[attempts]
 		attempts++
 		return key, nil

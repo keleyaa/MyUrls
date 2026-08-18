@@ -37,6 +37,20 @@ func TestComposeDefinesChinaTimezoneForEveryService(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(string(compose), "TZ: Asia/Shanghai"))
 }
 
+func TestComposeForwardsRedisURLToApplication(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yaml")
+	assert.NoError(t, err)
+
+	assert.Contains(t, string(compose), "MYURLS_REDIS_URL: ${MYURLS_REDIS_URL:-}")
+}
+
+func TestComposeForwardsBaseURLToApplication(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yaml")
+	assert.NoError(t, err)
+
+	assert.Contains(t, string(compose), "MYURLS_BASE_URL: ${MYURLS_BASE_URL:-}")
+}
+
 func TestImagePublishWorkflowMovesLatestOnlyForStableTagReleases(t *testing.T) {
 	workflow, err := os.ReadFile(".github/workflows/docker_build_push.yml")
 	assert.NoError(t, err)

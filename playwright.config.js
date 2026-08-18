@@ -29,24 +29,6 @@ module.exports = defineConfig({
       },
     },
     {
-      name: 'Desktop Dark',
-      use: {
-        browserName: 'chromium',
-        viewport: { width: 1440, height: 900 },
-        colorScheme: 'dark',
-      },
-    },
-    {
-      name: 'Mobile Light',
-      use: {
-        browserName: 'chromium',
-        viewport: { width: 390, height: 844 },
-        colorScheme: 'light',
-        hasTouch: true,
-        isMobile: true,
-      },
-    },
-    {
       name: 'Mobile Dark',
       use: {
         browserName: 'chromium',

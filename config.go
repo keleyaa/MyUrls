@@ -4,7 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,6 +14,7 @@ type Config struct {
 	Port           string
 	Domain         string
 	Proto          string
+	BaseURL        *url.URL
 	RedisAddr      string
 	RedisURL       string
 	RedisPassword  string
@@ -88,6 +91,13 @@ func applyEnvironment(cfg *Config, lookup LookupEnv) error {
 	setString("MYURLS_PORT", &cfg.Port)
 	setString("MYURLS_DOMAIN", &cfg.Domain)
 	setString("MYURLS_PROTO", &cfg.Proto)
+	if value, ok := lookup("MYURLS_BASE_URL"); ok {
+		baseURL, err := parseBaseURL(value)
+		if err != nil {
+			return err
+		}
+		cfg.BaseURL = baseURL
+	}
 	setString("MYURLS_REDIS_CONN", &cfg.RedisAddr)
 	setString("MYURLS_REDIS_URL", &cfg.RedisURL)
 	setString("MYURLS_REDIS_PASSWORD", &cfg.RedisPassword)
@@ -154,6 +164,31 @@ func applyDuration(lookup LookupEnv, name string, target *time.Duration) error {
 	}
 	*target = parsed
 	return nil
+}
+
+func (cfg Config) ShortURL(shortKey string) string {
+	if cfg.BaseURL != nil {
+		base := *cfg.BaseURL
+		base.Path = strings.TrimRight(base.Path, "/") + "/" + shortKey
+		return base.String()
+	}
+	return cfg.Proto + "://" + cfg.Domain + "/" + shortKey
+}
+
+func parseBaseURL(value string) (*url.URL, error) {
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil ||
+		parsed.Scheme == "" ||
+		parsed.Hostname() == "" ||
+		parsed.Opaque != "" ||
+		parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		strings.Contains(value, "#") ||
+		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
+		return nil, errors.New("invalid MYURLS_BASE_URL")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	return parsed, nil
 }
 
 func (cfg Config) validate() error {

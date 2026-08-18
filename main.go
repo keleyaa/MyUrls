@@ -19,12 +19,12 @@ func main() {
 		return
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "invalid configuration")
+		fmt.Fprintln(os.Stdout, "invalid configuration")
 		os.Exit(2)
 	}
 	if cfg.Healthcheck {
 		if err := RunHealthcheck(context.Background(), cfg.Port); err != nil {
-			fmt.Fprintln(os.Stderr, "healthcheck failed")
+			fmt.Fprintln(os.Stdout, "healthcheck failed")
 			os.Exit(1)
 		}
 		return
@@ -43,39 +43,26 @@ const (
 // RuntimeDependencies separates process wiring from the application's runtime
 // lifecycle so failures can be tested without calling os.Exit.
 type RuntimeDependencies struct {
-	InitLogger         func()
-	SyncLogger         func() error
-	InitRedis          func(Config) error
-	PingRedis          func(context.Context) error
-	CloseRedis         func() error
-	CloseRequestLogger func() error
-	LogError           func(error)
-	SignalContext      func(context.Context) (context.Context, context.CancelFunc)
-	NewRouter          func(Config, Dependencies) http.Handler
-	NewHTTPServer      func(Config, http.Handler) *HTTPServer
+	InitLogger    func()
+	SyncLogger    func() error
+	OpenStore     func(Config) (*Store, error)
+	LogError      func(error)
+	SignalContext func(context.Context) (context.Context, context.CancelFunc)
+	NewApp        func(Config, *Store) *App
+	NewHTTPServer func(Config, http.Handler) *HTTPServer
 }
 
 func productionRuntimeDependencies() RuntimeDependencies {
 	return RuntimeDependencies{
 		InitLogger: InitLogger,
 		SyncLogger: SyncLogger,
-		InitRedis: func(cfg Config) error {
+		OpenStore: func(cfg Config) (*Store, error) {
 			options, err := BuildRedisOptions(cfg)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			initRedisClient(options)
-			return nil
+			return NewStore(options), nil
 		},
-		PingRedis: func(ctx context.Context) error {
-			client := GetRedisClient()
-			if client == nil {
-				return ErrRedisClientUnavailable
-			}
-			return client.Ping(ctx).Err()
-		},
-		CloseRedis:         CloseRedisClient,
-		CloseRequestLogger: CloseRequestLogger,
 		LogError: func(error) {
 			if logger != nil {
 				logger.Error("application stopped")
@@ -84,9 +71,9 @@ func productionRuntimeDependencies() RuntimeDependencies {
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 		},
-		NewRouter: func(cfg Config, dependencies Dependencies) http.Handler {
+		NewApp: func(cfg Config, store *Store) *App {
 			gin.SetMode(gin.ReleaseMode)
-			return NewRouter(cfg, dependencies)
+			return NewApp(cfg, store)
 		},
 		NewHTTPServer: NewHTTPServer,
 	}
@@ -113,28 +100,29 @@ func RunApplication(ctx context.Context, cfg Config, dependencies RuntimeDepende
 		}
 	}()
 
-	if err = dependencies.InitRedis(cfg); err != nil {
+	store, openErr := dependencies.OpenStore(cfg)
+	if store != nil {
+		defer func() {
+			if closeErr := store.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close redis: %w", closeErr))
+			}
+		}()
+	}
+	if openErr != nil || store == nil {
 		return errors.New("initialize Redis client failed")
 	}
-	defer func() {
-		if closeErr := dependencies.CloseRedis(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("close redis: %w", closeErr))
-		}
-	}()
 
-	if err = dependencies.PingRedis(ctx); err != nil {
+	if err = store.Ping(ctx); err != nil {
 		return fmt.Errorf("redis ping: %w", err)
 	}
 
 	serveCtx, stop := dependencies.SignalContext(ctx)
 	defer stop()
-	router := dependencies.NewRouter(cfg, Dependencies{Ping: dependencies.PingRedis})
-	defer func() {
-		if closeErr := dependencies.CloseRequestLogger(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("close request logger: %w", closeErr))
-		}
-	}()
-	server := dependencies.NewHTTPServer(cfg, router)
+	app := dependencies.NewApp(cfg, store)
+	if app == nil {
+		return errors.New("initialize application failed")
+	}
+	server := dependencies.NewHTTPServer(cfg, app.Router())
 	if logger != nil {
 		logger.Infof("server running on %s", server.Addr)
 	}

@@ -91,12 +91,11 @@ func TestRateLimitMiddleware(t *testing.T) {
 func TestBodyLimitMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	InitLogger()
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
+	store, client := newTestStore(t)
 
 	cfg := defaultConfig()
 	cfg.MaxBodyBytes = 64
-	router := NewRouter(cfg, Dependencies{})
+	router := NewApp(cfg, store).Router()
 	validJSON := `{"longUrl":"https://example.com/long"}`
 
 	tests := []struct {
@@ -125,7 +124,7 @@ func TestBodyLimitMiddleware(t *testing.T) {
 			require.NoError(t, json.NewDecoder(bytes.NewReader(response.Body.Bytes())).Decode(&payload))
 			assert.Equal(t, ResponseCodeParamsCheckError, payload.Code)
 
-			size, err := GetRedisClient().DBSize(t.Context()).Result()
+			size, err := client.DBSize(t.Context()).Result()
 			require.NoError(t, err)
 			assert.Zero(t, size)
 		})
@@ -155,12 +154,11 @@ func TestBodyLimitMiddlewareReadsCompleteBodyBeforeCallingHandler(t *testing.T) 
 func TestBodyLimitMiddlewarePreservesFormRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	InitLogger()
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
+	store, _ := newTestStore(t)
 
 	cfg := defaultConfig()
 	cfg.MaxBodyBytes = 64
-	router := NewRouter(cfg, Dependencies{})
+	router := NewApp(cfg, store).Router()
 	body := url.Values{"longUrl": {"https://e.co"}, "shortKey": {"form"}}.Encode()
 	request := httptest.NewRequest(http.MethodPost, "/short", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")

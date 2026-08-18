@@ -22,6 +22,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, "8080", cfg.Port)
 	assert.Equal(t, "localhost:8080", cfg.Domain)
 	assert.Equal(t, "https", cfg.Proto)
+	assert.Nil(t, cfg.BaseURL)
 	assert.Equal(t, "localhost:6379", cfg.RedisAddr)
 	assert.Empty(t, cfg.RedisURL)
 	assert.Empty(t, cfg.RedisPassword)
@@ -61,6 +62,7 @@ func TestLoadConfigEnvironmentOverridesFlags(t *testing.T) {
 		"MYURLS_PORT":                "9090",
 		"MYURLS_DOMAIN":              "links.example.com",
 		"MYURLS_PROTO":               "http",
+		"MYURLS_BASE_URL":            "https://public.example/links/",
 		"MYURLS_REDIS_CONN":          "cache:6379",
 		"MYURLS_REDIS_URL":           "rediss://app:secret@managed.internal:6380/1",
 		"MYURLS_REDIS_PASSWORD":      "env-secret",
@@ -81,6 +83,8 @@ func TestLoadConfigEnvironmentOverridesFlags(t *testing.T) {
 	assert.Equal(t, "9090", cfg.Port)
 	assert.Equal(t, "links.example.com", cfg.Domain)
 	assert.Equal(t, "http", cfg.Proto)
+	require.NotNil(t, cfg.BaseURL)
+	assert.Equal(t, "https://public.example/links/short-key", cfg.ShortURL("short-key"))
 	assert.Equal(t, "cache:6379", cfg.RedisAddr)
 	assert.Equal(t, "rediss://app:secret@managed.internal:6380/1", cfg.RedisURL)
 	assert.Equal(t, "env-secret", cfg.RedisPassword)
@@ -105,6 +109,10 @@ func TestLoadConfigRejectsInvalidValues(t *testing.T) {
 		{"small body", map[string]string{"MYURLS_MAX_BODY_BYTES": "1023"}},
 		{"invalid duration", map[string]string{"MYURLS_READ_TIMEOUT": "soon"}},
 		{"zero timeout", map[string]string{"MYURLS_IDLE_TIMEOUT": "0s"}},
+		{"invalid base URL", map[string]string{"MYURLS_BASE_URL": "ftp://public.example"}},
+		{"base URL credentials", map[string]string{"MYURLS_BASE_URL": "https://user:secret@public.example"}},
+		{"base URL query", map[string]string{"MYURLS_BASE_URL": "https://public.example/?key=secret"}},
+		{"base URL fragment", map[string]string{"MYURLS_BASE_URL": "https://public.example/#secret"}},
 	}
 
 	for _, tt := range tests {
@@ -128,6 +136,14 @@ func TestLoadConfigDoesNotEchoInvalidEnvironmentValues(t *testing.T) {
 			assert.NotContains(t, err.Error(), secret)
 		})
 	}
+}
+
+func TestLoadConfigRejectsInvalidBaseURLWithoutLeakingValue(t *testing.T) {
+	_, err := LoadConfig(nil, mapLookup(map[string]string{
+		"MYURLS_BASE_URL": "https://user:super-secret@public.example",
+	}))
+	require.EqualError(t, err, "invalid MYURLS_BASE_URL")
+	assert.NotContains(t, err.Error(), "super-secret")
 }
 
 func TestLoadConfigRejectsInvalidRedisURLWithoutLeakingCredentials(t *testing.T) {

@@ -20,20 +20,22 @@ func testRuntimeDependencies(t *testing.T) (RuntimeDependencies, *atomic.Int32, 
 	t.Helper()
 	var closes atomic.Int32
 	var syncs atomic.Int32
+	store := &Store{
+		ping: func(context.Context) error { return nil },
+		close: func() error {
+			closes.Add(1)
+			return nil
+		},
+	}
 	return RuntimeDependencies{
 		InitLogger: func() {},
 		SyncLogger: func() error {
 			syncs.Add(1)
 			return nil
 		},
-		InitRedis: func(Config) error { return nil },
-		CloseRedis: func() error {
-			closes.Add(1)
-			return nil
-		},
-		CloseRequestLogger: func() error { return nil },
-		LogError:           func(error) {},
-		NewRouter:          func(Config, Dependencies) http.Handler { return http.NewServeMux() },
+		OpenStore: func(Config) (*Store, error) { return store, nil },
+		LogError:  func(error) {},
+		NewApp:             NewApp,
 		NewHTTPServer:      NewHTTPServer,
 		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
 			return context.WithCancel(parent)
@@ -48,7 +50,12 @@ func TestRuntimeExitCodeReturnsFailureAfterRedisStartupFailure(t *testing.T) {
 		signals.Add(1)
 		return context.WithCancel(parent)
 	}
-	dependencies.PingRedis = func(context.Context) error { return errors.New("redis unavailable") }
+	dependencies.OpenStore = func(Config) (*Store, error) {
+		return &Store{
+			ping:  func(context.Context) error { return errors.New("redis unavailable") },
+			close: func() error { closes.Add(1); return nil },
+		}, nil
+	}
 
 	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
 	assert.Equal(t, int32(1), closes.Load())
@@ -58,10 +65,44 @@ func TestRuntimeExitCodeReturnsFailureAfterRedisStartupFailure(t *testing.T) {
 
 func TestRuntimeExitCodeReturnsFailureWhenRedisOptionsAreInvalid(t *testing.T) {
 	dependencies, closes, syncs := testRuntimeDependencies(t)
-	dependencies.InitRedis = func(Config) error { return errInvalidRedisURL }
+	dependencies.OpenStore = func(Config) (*Store, error) { return nil, errInvalidRedisURL }
 
 	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
 	assert.Zero(t, closes.Load())
+	assert.Equal(t, int32(1), syncs.Load())
+}
+
+func TestRuntimeExitCodeReturnsFailureWhenStoreOpenFailsAfterAllocation(t *testing.T) {
+	dependencies, closes, syncs := testRuntimeDependencies(t)
+	dependencies.OpenStore = func(Config) (*Store, error) {
+		return &Store{
+			close: func() error {
+				closes.Add(1)
+				return nil
+			},
+		}, errors.New("open failed")
+	}
+
+	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
+	assert.Equal(t, int32(1), closes.Load())
+	assert.Equal(t, int32(1), syncs.Load())
+}
+
+func TestRuntimeExitCodeReturnsFailureWhenStoreIsMissing(t *testing.T) {
+	dependencies, closes, syncs := testRuntimeDependencies(t)
+	dependencies.OpenStore = func(Config) (*Store, error) { return nil, nil }
+
+	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
+	assert.Zero(t, closes.Load())
+	assert.Equal(t, int32(1), syncs.Load())
+}
+
+func TestRuntimeExitCodeReturnsFailureWhenAppIsMissing(t *testing.T) {
+	dependencies, closes, syncs := testRuntimeDependencies(t)
+	dependencies.NewApp = func(Config, *Store) *App { return nil }
+
+	assert.Equal(t, runtimeFailureExitCode, RuntimeExitCode(t.Context(), defaultConfig(), dependencies))
+	assert.Equal(t, int32(1), closes.Load())
 	assert.Equal(t, int32(1), syncs.Load())
 }
 
@@ -69,13 +110,18 @@ func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(
 	var events []string
 	dependencies, _, _ := testRuntimeDependencies(t)
 	dependencies.InitLogger = func() { events = append(events, "logger") }
-	dependencies.InitRedis = func(Config) error {
+	dependencies.OpenStore = func(Config) (*Store, error) {
 		events = append(events, "redis")
-		return nil
-	}
-	dependencies.PingRedis = func(context.Context) error {
-		events = append(events, "ping")
-		return nil
+		return &Store{
+			ping: func(context.Context) error {
+				events = append(events, "ping")
+				return nil
+			},
+			close: func() error {
+				events = append(events, "redis-close")
+				return nil
+			},
+		}, nil
 	}
 	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
 		events = append(events, "signal")
@@ -86,17 +132,13 @@ func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(
 			cancel()
 		}
 	}
-	dependencies.NewRouter = func(Config, Dependencies) http.Handler {
+	dependencies.NewApp = func(cfg Config, store *Store) *App {
 		events = append(events, "router")
-		return http.NewServeMux()
+		return NewApp(cfg, store)
 	}
 	dependencies.NewHTTPServer = func(cfg Config, handler http.Handler) *HTTPServer {
 		events = append(events, "server")
 		return NewHTTPServer(Config{Port: "0", ShutdownTimeout: time.Second}, handler)
-	}
-	dependencies.CloseRedis = func() error {
-		events = append(events, "redis-close")
-		return nil
 	}
 	dependencies.SyncLogger = func() error {
 		events = append(events, "logger-sync")
@@ -109,12 +151,10 @@ func TestRunApplicationCreatesSignalAfterRedisPingAndStopsBeforeResourceCleanup(
 
 func TestRunApplicationJoinsCleanupErrorsAndLogsBeforeSync(t *testing.T) {
 	runErr := errors.New("serve failed")
-	requestCloseErr := errors.New("request logger close failed")
 	redisCloseErr := errors.New("redis close failed")
 	syncErr := errors.New("logger sync failed")
 	var events []string
 	dependencies, _, _ := testRuntimeDependencies(t)
-	dependencies.PingRedis = func(context.Context) error { return nil }
 	dependencies.SignalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
 		return context.WithCancel(parent)
 	}
@@ -123,13 +163,14 @@ func TestRunApplicationJoinsCleanupErrorsAndLogsBeforeSync(t *testing.T) {
 		server.listenAndServe = func() error { return runErr }
 		return server
 	}
-	dependencies.CloseRequestLogger = func() error {
-		events = append(events, "request-close")
-		return requestCloseErr
-	}
-	dependencies.CloseRedis = func() error {
-		events = append(events, "redis-close")
-		return redisCloseErr
+	dependencies.OpenStore = func(Config) (*Store, error) {
+		return &Store{
+			ping: func(context.Context) error { return nil },
+			close: func() error {
+				events = append(events, "redis-close")
+				return redisCloseErr
+			},
+		}, nil
 	}
 	dependencies.LogError = func(error) { events = append(events, "log") }
 	dependencies.SyncLogger = func() error {
@@ -139,10 +180,9 @@ func TestRunApplicationJoinsCleanupErrorsAndLogsBeforeSync(t *testing.T) {
 
 	err := RunApplication(t.Context(), defaultConfig(), dependencies)
 	assert.ErrorIs(t, err, runErr)
-	assert.ErrorIs(t, err, requestCloseErr)
 	assert.ErrorIs(t, err, redisCloseErr)
 	assert.ErrorIs(t, err, syncErr)
-	assert.Equal(t, []string{"request-close", "redis-close", "log", "sync"}, events)
+	assert.Equal(t, []string{"redis-close", "log", "sync"}, events)
 }
 
 func TestProductionRuntimeFailureLogDoesNotIncludeUnderlyingError(t *testing.T) {
@@ -176,7 +216,6 @@ func TestRuntimeExitCodeReturnsFailureWhenHTTPCannotListen(t *testing.T) {
 			cancel()
 		}
 	}
-	dependencies.PingRedis = func(context.Context) error { return nil }
 	cfg := defaultConfig()
 	cfg.Port = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 
@@ -198,7 +237,6 @@ func TestRuntimeExitCodeReturnsSuccessAfterNormalCancellation(t *testing.T) {
 			cancel()
 		}
 	}
-	dependencies.PingRedis = func(context.Context) error { return nil }
 	cfg := defaultConfig()
 	cfg.Port = "0"
 	cfg.ShutdownTimeout = time.Second

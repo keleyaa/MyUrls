@@ -8,13 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/time/rate"
 )
-
-// Dependencies collects runtime dependencies for HTTP handlers.
-type Dependencies struct {
-	Ping func(context.Context) error
-}
 
 // HTTPServer keeps the HTTP server and its graceful shutdown deadline together.
 type HTTPServer struct {
@@ -35,39 +29,6 @@ func privacySafeRecovery() gin.HandlerFunc {
 		}
 		c.AbortWithStatus(http.StatusInternalServerError)
 	})
-}
-
-// NewRouter builds the application's HTTP routes.
-func NewRouter(cfg Config, dependencies Dependencies) *gin.Engine {
-	router := gin.New()
-	router.Use(privacySafeRecovery())
-	router.Use(initServiceLogger())
-
-	router.LoadHTMLGlob("public/*.html")
-	router.StaticFile(
-		"/fonts/manrope-latin-wght-normal.woff2",
-		"public/fonts/manrope-latin-wght-normal.woff2",
-	)
-	router.StaticFile("/app.js", "public/app.js")
-	router.StaticFile("/styles.css", "public/styles.css")
-	router.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.html", gin.H{"title": "MyUrls"})
-	})
-
-	var limiter *rate.Limiter
-	if cfg.RateLimitRPS > 0 && cfg.RateLimitBurst > 0 {
-		limiter = rate.NewLimiter(rate.Limit(cfg.RateLimitRPS), cfg.RateLimitBurst)
-	}
-	router.POST("/short",
-		AuthMiddleware(cfg.APIToken),
-		RateLimitMiddleware(limiter),
-		BodyLimitMiddleware(int64(cfg.MaxBodyBytes)),
-		LongToShortHandler(cfg),
-	)
-	router.GET("/healthz", HealthHandler(dependencies.Ping))
-	router.GET("/:shortKey", ShortToLongHandler())
-
-	return router
 }
 
 // NewHTTPServer builds an HTTP server with bounded connection lifetimes.

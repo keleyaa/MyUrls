@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -12,93 +11,53 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRedisOperationsReturnStableErrorWithoutClient(t *testing.T) {
-	resetRedisClient(t)
-
-	_, err := StoreShortURL(t.Context(), "key", "https://example.com", time.Hour)
-	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
-
-	_, err = LoadLongURL(t.Context(), "key")
-	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
-}
-
-func TestCloseRedisClientIsSafeDuringConcurrentCalls(t *testing.T) {
-	resetRedisClient(t)
-	initRedisClient(newTestRedisOptions(t))
-
-	var group sync.WaitGroup
-	for range 32 {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			assert.NoError(t, CloseRedisClient())
-		}()
-	}
-	group.Wait()
-
-	assert.Nil(t, GetRedisClient())
-	assert.True(t, errors.Is(func() error {
-		_, err := LoadLongURL(t.Context(), "key")
-		return err
-	}(), ErrRedisClientUnavailable))
-}
-
-func newTestRedisOptions(t testing.TB) *redis.Options {
+func newTestStore(t testing.TB) (*Store, *redis.Client) {
 	t.Helper()
 
 	server, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("start test Redis: %v", err)
 	}
-	t.Cleanup(server.Close)
-
-	return &redis.Options{Addr: server.Addr()}
-}
-
-func resetRedisClient(t testing.TB) {
-	t.Helper()
-
-	redisClientMu.Lock()
-	previous := redisClient
-	redisClient = nil
-	redisClientMu.Unlock()
+	options := &redis.Options{Addr: server.Addr()}
+	store := NewStore(options)
+	client := redis.NewClient(options)
 	t.Cleanup(func() {
-		redisClientMu.Lock()
-		current := redisClient
-		redisClient = previous
-		redisClientMu.Unlock()
-		if current != nil && current != previous {
-			_ = current.Close()
-		}
+		_ = client.Close()
+		_ = store.Close()
+		server.Close()
 	})
+	return store, client
 }
 
-func TestGetRedisClient(t *testing.T) {
-	resetRedisClient(t)
+func TestStoreOperationsReturnStableErrorWithoutClient(t *testing.T) {
+	store := &Store{}
 
-	client := GetRedisClient()
-	assert.Nil(t, client)
+	_, err := store.StoreShortURL(t.Context(), "key", "https://example.com", time.Hour)
+	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
 
-	initRedisClient(newTestRedisOptions(t))
-	client = GetRedisClient()
-	assert.NotNil(t, client)
-
-	// Test redis exec commands and response
-	ctx := context.Background()
-	rs := client.Ping(ctx)
-	assert.Nil(t, rs.Err())
-	assert.Equal(t, "PONG", rs.Val())
-
-	rsCmd := GetRedisClient().Do(ctx, "dbsize")
-	assert.Nil(t, rsCmd.Err())
+	_, err = store.LoadLongURL(t.Context(), "key")
+	assert.ErrorIs(t, err, ErrRedisClientUnavailable)
 }
 
-func BenchmarkGetRedisClient(b *testing.B) {
-	resetRedisClient(b)
-	initRedisClient(newTestRedisOptions(b))
+func TestStoreCloseIsSafeDuringConcurrentCalls(t *testing.T) {
+	store, _ := newTestStore(t)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		GetRedisClient().Get(context.Background(), "key")
+	var group sync.WaitGroup
+	for range 32 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			assert.NoError(t, store.Close())
+		}()
 	}
+	group.Wait()
+
+	_, err := store.LoadLongURL(t.Context(), "key")
+	assert.ErrorIs(t, err, redis.ErrClosed)
+}
+
+func TestStorePing(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	assert.NoError(t, store.Ping(context.Background()))
 }
