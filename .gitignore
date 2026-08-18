@@ -12,3 +12,7 @@ playwright-report/
 test-results/
 .superpowers/
 .worktrees/
+
+# 本机与 Claude 临时工作区
+.DS_Store
+.claude/worktrees/
