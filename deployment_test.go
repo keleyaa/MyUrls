@@ -56,7 +56,7 @@ func TestImagePublishWorkflowMovesLatestOnlyForStableTagReleases(t *testing.T) {
 	assert.NoError(t, err)
 	content := string(workflow)
 
-	assert.Contains(t, content, "branches:\n      - master")
+	assert.NotContains(t, content, "branches:\n      - master")
 	assert.Contains(t, content, "stable_tag_pattern")
 	assert.Contains(t, content, "publish_latest")
 	assert.Contains(t, content, "ghcr.io/keleyaa/myurls:latest")

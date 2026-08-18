@@ -186,8 +186,8 @@ Redis 默认只在 Compose 网络内可达；Docker 管理员或获准加入该�
 
 ## 镜像、运维与测试
 
-- **镜像发布**：每次推送 `master`、推送扁平的 `v*` Git 标签或手动运行时，GHCR 都会先完成完整 CI，再构建
-  `ghcr.io/keleyaa/myurls`。稳定 `vX.Y.Z` 才会更新 `latest`；使用前请在 Packages 页面确认标签。
+- **镜像发布**：推送扁平的 `v*` Git 标签或手动运行时，GHCR 都会先完成完整 CI，再构建
+  `ghcr.io/keleyaa/myurls`。稳定 `vX.Y.Z` 会更新 `latest`，使其始终指向最新稳定版本；使用前请在 Packages 页面确认标签。
   镜像部署与 digest 回滚请参阅[镜像升级](docs/operations.md#镜像升级)。
 - **日志与恢复**：日志使用 `Asia/Shanghai`（UTC+8）并经 Compose `json-file` 轮转（单文件 10 MB，最多 3 个文件）。访问日志只记录方法、Gin 路由模板、状态码和耗时；成功的 `/healthz` 不写访问日志，业务异常只记录固定事件，不输出 URL、短码、Token、凭据或底层错误。Redis 不支持跨 major 原地升级或降级，必须先完成隔离恢复演练；详见[运维指南](docs/operations.md)。
 - **运行要求**：Go `1.25.0`（建议使用固定的 `go1.26.6` toolchain）、Redis 7.4 或 8.x、
