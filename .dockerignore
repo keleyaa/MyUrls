@@ -9,15 +9,7 @@ output
 docs
 .git
 .gitignore
-*.go
-go.mod
-go.sum
-Makefile
-/public
-/assets
-scripts
 ops/backups
-data
 logs
 .env
 .worktrees
