@@ -85,7 +85,14 @@ try {
   const checksum = createHash('sha256').update(rdb).digest('hex');
   await writeFile(`${backupFile}.sha256`, `${checksum}  ${path.basename(backupFile)}\n`);
 
-  await run('sh', ['ops/redis-restore.sh', backupFile, restoredVolume, image]);
+  await run('sh', [
+    'ops/redis-restore.sh',
+    backupFile,
+    restoredVolume,
+    'backup-test',
+    'https://example.com/backup',
+    image,
+  ]);
   await run('docker', [
     'run',
     '-d',

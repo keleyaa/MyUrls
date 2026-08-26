@@ -12,6 +12,9 @@ node_modules/
 playwright-report/
 test-results/
 coverage/
+output/
+.pnpm-store/
+ops/backups/
 .superpowers/
 .worktrees/
 

@@ -51,6 +51,7 @@ describe('configuration', () => {
     ['invalid public base path', { ...baseEnv, PUBLIC_BASE_URL: 'https://myurl.example/path' }],
     ['invalid Redis scheme', { ...baseEnv, REDIS_URL: 'http://redis:6379' }],
     ['invalid proxy CIDR', { ...baseEnv, TRUST_PROXY_CIDRS: 'not-a-cidr' }],
+    ['out of range port', { ...baseEnv, APP_PORT: '65536' }],
     ['invalid limit relation', { ...baseEnv, CREATE_HARD_LIMIT_10M: '5' }],
     ['invalid boolean', { ...baseEnv, TURNSTILE_ENABLED: 'yes' }],
   ])('rejects %s', (_label, env) => {
@@ -73,6 +74,21 @@ describe('configuration', () => {
         TURNSTILE_MODE: 'test',
         PUBLIC_BASE_URL: 'https://myurl.example',
       }),
+    ).toThrow();
+  });
+
+  it('rejects unbounded proxy trust in production', () => {
+    const productionEnv = {
+      ...baseEnv,
+      NODE_ENV: 'production',
+      PUBLIC_BASE_URL: 'https://myurl.example',
+      TURNSTILE_MODE: 'cloudflare',
+    };
+    expect(() =>
+      parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '0.0.0.0/0' }),
+    ).toThrow();
+    expect(() =>
+      parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '::/0' }),
     ).toThrow();
   });
 

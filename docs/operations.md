@@ -84,10 +84,14 @@ mkdir -p ops/backups
 
 ```sh
 docker compose stop app redis
-./ops/redis-restore.sh /secure/backups/redis-20260826T020000Z.rdb myurl-v2-redis-restore-20260826
+./ops/redis-restore.sh \
+  /secure/backups/redis-20260826T020000Z.rdb \
+  myurl-v2-redis-restore-20260826 \
+  launch \
+  https://example.com/articles/launch
 ```
 
-恢复脚本会先校验 sidecar，再用临时 `appendonly no` Redis 加载 RDB 并生成 AOF 基线；它拒绝复用已存在的卷。然后使用新卷启动 Redis，执行 `PING` 和短链抽样检查，再更新 Compose 的卷引用并启动应用。不要直接覆盖现有 `myurl-v2-redis-data`，不要把 v1 的 bind mount 或 Redis key 复制到 v2。候选发布的自动恢复演练由 `corepack pnpm backup:restore` 执行，并使用唯一临时卷。
+恢复脚本强制校验 sidecar，并要求传入一个短码和预期目标 URL；它会用临时 `appendonly no` Redis 加载 RDB，执行 `PING` 和短链抽样检查，再生成 AOF 基线。抽样不匹配、sidecar 缺失或卷已存在都会失败，失败时新建的临时卷会清理。脚本成功只代表新卷已经过校验，不会自动修改 Compose 或切换流量。确认成功后，用新卷启动 Redis，再次执行 `PING` 和短链抽样检查，最后才更新 Compose 的卷引用并启动应用。不要直接覆盖现有 `myurl-v2-redis-data`，不要把 v1 的 bind mount 或 Redis key 复制到 v2。候选发布的自动恢复演练由 `corepack pnpm backup:restore` 执行，并使用唯一临时卷。
 
 目标是单 VPS 下 `RPO <= 24 小时`、`RTO <= 2 小时`；这不是高可用承诺。AOF、RDB 和异机备份提供可恢复性，不提供零停机或零数据丢失。
 

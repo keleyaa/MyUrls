@@ -89,6 +89,12 @@ test.describe('myurl user flows', () => {
       window.turnstile = {
         render: (_element, options) => {
           (
+            window as Window & {
+              testTurnstileAction?: string;
+              testTurnstileCallback?: (token: string) => void;
+            }
+          ).testTurnstileAction = options.action;
+          (
             window as Window & { testTurnstileCallback?: (token: string) => void }
           ).testTurnstileCallback = options.callback;
           return 'test-widget';
@@ -118,6 +124,11 @@ test.describe('myurl user flows', () => {
     await expect(
       page.locator('.challenge-region').getByText('请完成验证后继续。', { exact: true }),
     ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as Window & { testTurnstileAction?: string }).testTurnstileAction,
+      ),
+    ).toBe('create_link');
     await page.evaluate(() => {
       (
         window as Window & { testTurnstileCallback?: (token: string) => void }

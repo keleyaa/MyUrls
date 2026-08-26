@@ -55,13 +55,14 @@ function parseInteger(
   name: string,
   fallback: number,
   minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
 ): number {
   const raw = env[name] ?? String(fallback);
   if (!/^\d+$/.test(raw)) {
     throw new Error(`Invalid numeric configuration: ${name}`);
   }
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < minimum) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(`Invalid numeric configuration: ${name}`);
   }
   return value;
@@ -132,7 +133,10 @@ function validateRedisUrl(raw: string, password: string): string {
   return parsed.toString();
 }
 
-function parseTrustProxyCidrs(raw: string | undefined): readonly Cidr[] {
+function parseTrustProxyCidrs(
+  raw: string | undefined,
+  nodeEnv: NodeEnvironment,
+): readonly Cidr[] {
   if (raw === undefined || raw.trim() === '') {
     return [];
   }
@@ -141,7 +145,13 @@ function parseTrustProxyCidrs(raw: string | undefined): readonly Cidr[] {
       .split(',')
       .map((part) => part.trim())
       .filter((part) => part !== '')
-      .map(parseCidr);
+      .map((part) => {
+        const cidr = parseCidr(part);
+        if (nodeEnv === 'production' && cidr[1] === 0) {
+          throw new Error('Unbounded proxy trust is not allowed in production');
+        }
+        return cidr;
+      });
   } catch {
     throw new Error('Invalid TRUST_PROXY_CIDRS');
   }
@@ -204,12 +214,12 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
 
   return {
     nodeEnv,
-    port: parseInteger(env, 'APP_PORT', 3000, 1),
+    port: parseInteger(env, 'APP_PORT', 3000, 1, 65535),
     publicBaseUrl: publicBase.url,
     publicBaseOrigin: publicBase.origin,
     redisUrl: validateRedisUrl(env.REDIS_URL ?? 'redis://redis:6379/0', env.REDIS_PASSWORD ?? ''),
     ipHashSecret: Buffer.from(secretRaw, 'utf8'),
-    trustProxyCidrs: parseTrustProxyCidrs(env.TRUST_PROXY_CIDRS),
+    trustProxyCidrs: parseTrustProxyCidrs(env.TRUST_PROXY_CIDRS, nodeEnv),
     turnstile: {
       enabled: turnstileEnabled,
       mode: turnstileMode,

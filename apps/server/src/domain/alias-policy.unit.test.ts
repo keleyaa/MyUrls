@@ -8,7 +8,16 @@ describe('alias policy', () => {
     expect(normalizeAlias('  Launch_42  ')).toBe('launch_42');
   });
 
-  it.each(['abc', 'a'.repeat(33), 'hello.world', 'hello world', 'аlias', 'foo/bar', 'foo%2Fbar'])(
+  it.each([
+    'abc',
+    'a'.repeat(33),
+    'hello.world',
+    'hello world',
+    'аlias',
+    'Kaunch',
+    'foo/bar',
+    'foo%2Fbar',
+  ])(
     'rejects invalid alias %s',
     (value) => {
       expect(() => normalizeAlias(value)).toThrow(AliasInvalidError);

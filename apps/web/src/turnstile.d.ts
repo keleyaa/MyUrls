@@ -5,6 +5,7 @@ interface MyUrlTurnstile {
     element: HTMLElement,
     options: {
       sitekey: string;
+      action: string;
       callback: (token: string) => void;
       'error-callback': () => void;
       'expired-callback': () => void;

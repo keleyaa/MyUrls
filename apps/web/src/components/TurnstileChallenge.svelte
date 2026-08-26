@@ -43,6 +43,7 @@
         }
         widgetId = window.turnstile.render(container, {
           sitekey: siteKey,
+          action: 'create_link',
           callback: (token) => onToken(token),
           'error-callback': onError,
           'expired-callback': onError,
