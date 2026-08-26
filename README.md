@@ -152,4 +152,8 @@ ghcr.io/keleyaa/myurls:v2.0.0
 ghcr.io/keleyaa/myurls:latest
 ```
 
-项目链接：[GitHub](https://github.com/keleyaa/MyUrls) · [订阅转换](https://sub.ml1.one) · MIT License
+## 运维边界
+
+MyUrls v2 只覆盖应用与 Redis 数据层。域名、TLS、反向代理、主机防火墙、备份和日志平台由部署者负责；部署与恢复说明见 [v2 运维指南](docs/operations.md)。
+
+MIT License
