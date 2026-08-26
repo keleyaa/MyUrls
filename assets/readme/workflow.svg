@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="390" viewBox="0 0 1200 390" role="img" aria-labelledby="title desc">
+  <title id="title">MyURL v2 request workflow</title>
+  <desc id="desc">Four stages of a MyURL v2 short link: accept an HTTP(S) URL, apply risk and alias rules, claim a key in Redis with NX and a 90-day TTL, then return a 302 redirect.</desc>
+
+  <rect width="1200" height="390" rx="20" fill="#0b0e0d"/>
+  <path d="M64 78H1136" stroke="#202822"/>
+  <text x="64" y="52" fill="#f1f6f2" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="32" font-weight="650">One request. One atomic claim.</text>
+  <text x="1136" y="52" text-anchor="end" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">MYURL / FLOW</text>
+
+  <g id="stage-input" transform="translate(64 120)">
+    <rect width="236" height="176" rx="12" fill="#121815" stroke="#2b3730"/>
+    <text x="24" y="40" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="600">01</text>
+    <text x="24" y="88" fill="#f1f6f2" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="650">INPUT</text>
+    <text x="24" y="126" fill="#a9b5ac" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">HTTP(S) URL</text>
+    <path d="M24 150H166" stroke="#31503a" stroke-width="2"/>
+    <path d="M166 150h38" stroke="#62d88b" stroke-width="2"/>
+    <path d="m198 144 8 6-8 6" fill="none" stroke="#62d88b" stroke-width="2"/>
+  </g>
+
+  <path d="M300 208H330" stroke="#62d88b" stroke-width="2"/>
+  <path d="m324 202 8 6-8 6" fill="none" stroke="#62d88b" stroke-width="2"/>
+
+  <g id="stage-guard" transform="translate(332 120)">
+    <rect width="236" height="176" rx="12" fill="#121815" stroke="#2b3730"/>
+    <text x="24" y="40" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="600">02</text>
+    <text x="24" y="88" fill="#f1f6f2" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="650">GUARD</text>
+    <text x="24" y="126" fill="#a9b5ac" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">RISK + ALIAS</text>
+    <circle cx="28" cy="151" r="4" fill="#f0a461"/>
+    <text x="44" y="158" fill="#f0a461" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">CHALLENGE IF NEEDED</text>
+  </g>
+
+  <path d="M568 208H598" stroke="#62d88b" stroke-width="2"/>
+  <path d="m592 202 8 6-8 6" fill="none" stroke="#62d88b" stroke-width="2"/>
+
+  <g id="stage-claim" transform="translate(600 120)">
+    <rect width="236" height="176" rx="12" fill="#121815" stroke="#2b3730"/>
+    <text x="24" y="40" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="600">03</text>
+    <text x="24" y="88" fill="#f1f6f2" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="650">CLAIM</text>
+    <text x="24" y="126" fill="#a9b5ac" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">REDIS NX</text>
+    <text x="24" y="158" fill="#f0a461" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">TTL 90 DAYS</text>
+  </g>
+
+  <path d="M836 208H866" stroke="#f0a461" stroke-width="2"/>
+  <path d="m860 202 8 6-8 6" fill="none" stroke="#f0a461" stroke-width="2"/>
+
+  <g id="stage-redirect" transform="translate(868 120)">
+    <rect width="268" height="176" rx="12" fill="#2a2018" stroke="#60432d"/>
+    <text x="24" y="40" fill="#f0a461" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="600">04</text>
+    <text x="24" y="88" fill="#f1f6f2" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="650">REDIRECT</text>
+    <text x="24" y="126" fill="#f0c296" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">302 /:CODE</text>
+    <text x="24" y="158" fill="#c6a17e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">GET + HEAD</text>
+  </g>
+
+  <path d="M64 332H1136" stroke="#202822"/>
+  <text x="64" y="358" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">NO ACCOUNT</text>
+  <circle cx="190" cy="352" r="3" fill="#62d88b"/>
+  <text x="210" y="358" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">NO TARGET FETCH</text>
+  <circle cx="414" cy="352" r="3" fill="#62d88b"/>
+  <text x="434" y="358" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">NO V1 DATA MIGRATION</text>
+</svg>

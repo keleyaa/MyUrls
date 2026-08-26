@@ -1,19 +1,43 @@
 # MyURL v2
 
-MyURL v2 是一个无账号、无统计的公开短链接工具。用户提交绝对 HTTP(S) URL 后，服务生成一个固定 90 天有效的短链接，并在浏览器允许时自动复制结果。
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="MyURL v2：匿名短链、Redis 原子占位与 90 天有效期">
+</p>
 
-v2 使用 TypeScript、Fastify、Redis、Svelte 和 Vite。它是独立版本：不兼容、不迁移、也不复用 v1 的 Go API、Redis key 或数据卷。
+<p align="center">
+  <a href="https://github.com/keleyaa/MyUrls/actions/workflows/ci.yml"><img src="https://github.com/keleyaa/MyUrls/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a>
+</p>
+
+匿名、无统计的 HTTP(S) 短链工具。提交一个 URL，生成 8 位短码；结果默认有效 90 天，并在浏览器允许时自动复制。
+
+## 先看它做什么
+
+MyURL v2 只做一件事：把一个绝对 HTTP(S) URL 变成一个短而清晰、会自动过期的入口。
+
+<p align="center">
+  <img src="./assets/readme/workflow.svg" width="100%" alt="MyURL v2 请求流程：接收 HTTP(S) URL、执行风险与别名策略、使用 Redis NX 原子占位并返回 302">
+</p>
+
+几个明确边界：
+
+- 不需要账号，不记录访问统计，也不保存原始 IP。
+- 只接受绝对 `http://` 或 `https://` URL；服务端不会抓取目标、解析 DNS 或预览页面。
+- 自动短码使用 8 位大小写敏感 Base62；自定义别名规范化为 ASCII 小写，并与自动短码共享 Redis `NX` 命名空间。
+- 短链固定使用 90 天 TTL；v2 使用独立 Redis keyspace 和数据卷，不读取或迁移旧数据。
+- 风险达到阈值时才加载 Turnstile；限流标识使用 HMAC-SHA-256 指纹。
 
 ## 快速开始
 
-需要 Node.js 24、Corepack、Docker Compose v2、可用的 Chromium/WebKit 浏览器，以及本地 Trivy 0.74.0（完整 `verify` 的容器扫描门禁）。macOS 可执行 `brew install trivy`。
+### 本地开发
+
+环境要求：Node.js `24.14.1`、Corepack，以及用于完整验证的 Docker Compose v2、Chromium、WebKit 和 Trivy `0.74.0`。
 
 ```sh
 corepack pnpm install --frozen-lockfile
 corepack pnpm build
 ```
 
-本地开发可以使用内存测试存储启动页面和服务：
+启动本地 API（内存存储，不连接 Redis）：
 
 ```sh
 NODE_ENV=test \
@@ -24,15 +48,27 @@ TEST_STORE=memory \
 corepack pnpm dev:server
 ```
 
-生产或接近生产的 Compose 栈：
+另开一个终端启动 Svelte/Vite 页面：
+
+```sh
+corepack pnpm dev:web
+```
+
+打开 <http://127.0.0.1:5173>。Vite 会把 `/api` 和 `/health` 请求代理到本地 API。
+
+### Compose 运行
 
 ```sh
 cp .env.example .env
-# 编辑 .env，至少设置 PUBLIC_BASE_URL、IP_HASH_SECRET 和 Turnstile 配置。
+```
+
+编辑 `.env`，至少替换 `PUBLIC_BASE_URL`、`IP_HASH_SECRET` 和生产 Turnstile 配置，然后启动：
+
+```sh
 docker compose up -d --build --wait
 ```
 
-Compose 只启动 `app` 和 `redis`。应用监听容器内 `0.0.0.0:3000`，宿主机默认只绑定 `127.0.0.1:${APP_PORT:-3000}`；Redis 不发布宿主机端口。公网入口、TLS、域名解析、防火墙和日志平台由部署者负责。
+Compose 只启动 `app` 和 `redis`。应用容器监听 `3000`，宿主机默认只绑定 `127.0.0.1:${APP_PORT:-3000}`；Redis 不发布宿主机端口。公网入口、TLS、域名解析、防火墙和日志平台由部署者负责。
 
 ## HTTP 合同
 
@@ -44,25 +80,51 @@ curl --fail-with-body http://127.0.0.1:3000/api/v1/links \
   -d '{"url":"https://example.com/docs","alias":"docs"}'
 ```
 
-成功返回 `201`，响应包含 `code`、`shortUrl` 和 UTC `expiresAt`。自动短码为 8 位大小写敏感 Base62；别名规范化为 ASCII 小写，并与自动短码共享 Redis `NX` 命名空间。
+成功返回 `201`：
 
-短链 `GET` 和 `HEAD` 返回 `302`，解析失败返回 `404`，Redis 故障返回 `503`。创建接口的稳定错误码包括 `invalid_request`、`challenge_required`、`challenge_invalid`、`alias_unavailable`、`url_not_allowed`、`alias_invalid`、`rate_limited`、`dependency_unavailable` 和 `code_generation_exhausted`。
-
-## 工程结构
-
-```text
-apps/web/                 Svelte 页面、状态机和本地资源
-apps/server/              Fastify、ShortLinkService 和适配器
-packages/contracts/       TypeBox JSON Schema 与共享类型
-tests/e2e/                Chromium、移动 Chromium、WebKit 流程
-ops/                      Compose 验证、备份、恢复和安全扫描
+```json
+{
+  "code": "docs",
+  "shortUrl": "https://myurl.example/docs",
+  "expiresAt": "2026-11-25T12:00:00.000Z"
+}
 ```
 
-`ShortLinkService` 是对外业务接口的深模块：路由只处理 schema、可信来源上下文和 HTTP 映射；URL 策略、别名、风险、Redis 原子写入和 TTL 都隐藏在服务接口之后。Redis Adapter 与 Turnstile Adapter 是可替换的真实外部 seam。
+核心路由：
+
+```text
+POST /api/v1/links  -> 201，返回 code、shortUrl、expiresAt
+GET  /:code         -> 302，Location 指向原始目标
+HEAD /:code         -> 302，不返回响应体
+GET  /health/live   -> 200，不访问 Redis
+GET  /health/ready  -> 200 或 503，执行 Redis PING
+```
+
+创建接口使用稳定错误码，例如 `invalid_request`、`url_not_allowed`、`alias_invalid`、`alias_unavailable`、`challenge_required`、`rate_limited` 和 `dependency_unavailable`。解析不到短码或短链已过期时返回 `404`。
+
+## 结构与设计
+
+```text
+apps/web/           Svelte 页面、交互状态机和本地资源
+apps/server/        Fastify HTTP 层、ShortLinkService 和外部适配器
+packages/contracts/ TypeBox JSON Schema 与共享 TypeScript 类型
+tests/e2e/          Chromium、移动 Chromium、WebKit 用户流程
+ops/                Compose 验证、性能、备份恢复和安全扫描
+```
+
+`ShortLinkService` 是业务边界。路由层只负责 schema、可信来源上下文和 HTTP 映射；URL 策略、别名、风险、Redis 原子写入和 TTL 都隐藏在服务接口之后。Redis 和 Turnstile 都通过适配器接入，测试可以替换为内存实现。
 
 ## 验证
 
-单项检查：
+运行完整发布门禁：
+
+```sh
+corepack pnpm verify
+```
+
+它会依次检查格式、ESLint、严格 TypeScript、单元覆盖率、真实 Redis、API 合同、生产构建、浏览器流程、Compose 构建与重启持久化、性能、备份恢复、依赖审计、容器安全和运行时外部资源。任一步失败都会返回非零状态。
+
+常用单项检查：
 
 ```sh
 corepack pnpm format
@@ -75,25 +137,23 @@ corepack pnpm build
 corepack pnpm test:e2e
 ```
 
-候选版本统一门禁：
+## 镜像发布
 
-```sh
-corepack pnpm verify
+GitHub Actions 的 `Publish GHCR image` 支持版本化手动发布：
+
+1. 打开 **Actions → Publish GHCR image → Run workflow**。
+2. 在 `version` 中输入稳定版本，例如 `v2.0.0`。
+3. 工作流先执行完整 CI，再发布多架构镜像。
+
+稳定版本会同时发布版本标签、提交 SHA 标签和 `latest`；不符合 `vX.Y.Z` 的手动输入会被拒绝。镜像地址：
+
+```text
+ghcr.io/keleyaa/myurls:v2.0.0
+ghcr.io/keleyaa/myurls:latest
 ```
 
-`verify` 会执行格式、ESLint、严格 TypeScript、覆盖率、真实 Redis、API 合同、生产构建、浏览器流程、Compose 重启持久化、备份恢复、依赖审计、容器高危漏洞扫描和运行时外部资源检查。任一步失败都会返回非零状态。
+## 运维边界
 
-## 隐私与安全边界
+部署、备份、恢复和回滚步骤见 [v2 运维指南](docs/operations.md)。备份默认不写入 Git；生产部署前应在干净环境执行一次恢复演练。
 
-- 原始 IP 不写入 Redis 或日志；限流 key 使用 HMAC-SHA-256 指纹。
-- API 默认不信任 `X-Forwarded-For` 和 `Forwarded`，只有 `TRUST_PROXY_CIDRS` 明确匹配时才解析。
-- 服务端不连接、解析 DNS、抓取或预览目标 URL，因此 v2 不做目标可用性检查或 DNS 重绑定检测。
-- Turnstile 只有风险达到阈值后才加载；token 不记录、不缓存、不复用。
-- 应用资源、字体和图标随构建产物打包；除按需 Turnstile 外不使用运行时第三方资源。
-- v2 Redis 使用独立命名卷 `myurl-v2-redis-data`，不会读取 v1 数据目录。
-
-## 运维
-
-部署和恢复步骤见 [v2 运维指南](docs/operations.md)。备份默认不写入 Git；候选发布至少需要在干净环境执行一次恢复演练。
-
-项目链接：[GitHub](https://github.com/keleyaa/MyUrls)。订阅转换入口：[sub.ml1.one](https://sub.ml1.one)。许可证：MIT。
+项目链接：[GitHub](https://github.com/keleyaa/MyUrls) · [订阅转换](https://sub.ml1.one) · MIT License

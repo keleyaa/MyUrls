@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">MyURL v2 anonymous short links</title>
+  <desc id="desc">A project-native view of MyURL v2: an HTTP(S) request is checked, claimed atomically in Redis, and resolved through a short-lived redirect.</desc>
+
+  <rect width="1200" height="400" rx="20" fill="#0b0e0d"/>
+  <path d="M64 264H1136" stroke="#202822" stroke-width="1"/>
+  <path d="M64 64H600" stroke="#202822" stroke-width="1"/>
+  <path d="M624 64H1136" stroke="#62d88b" stroke-width="1" opacity=".45"/>
+
+  <g id="identity" transform="translate(64 58)">
+    <text x="0" y="0" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" font-weight="600" letter-spacing="2">OPEN SOURCE / LINK UTILITY</text>
+    <text x="0" y="86" fill="#f1f6f2" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="72" font-weight="600">myurl v2</text>
+    <text x="0" y="132" fill="#c4cec6" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24">Short links with a clear expiry.</text>
+    <text x="0" y="168" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">ANONYMOUS BY DEFAULT · 90-DAY TTL</text>
+  </g>
+
+  <g id="path" transform="translate(650 58)">
+    <rect x="0" y="0" width="486" height="182" rx="12" fill="#121815" stroke="#2b3730"/>
+    <text x="28" y="32" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" letter-spacing="1.5">REQUEST PATH</text>
+
+    <g transform="translate(28 56)">
+      <rect width="112" height="54" rx="8" fill="#17231b" stroke="#31503a"/>
+      <text x="18" y="35" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" font-weight="600">POST</text>
+    </g>
+    <path d="M140 83H174" stroke="#62d88b" stroke-width="2"/>
+    <path d="m168 77 8 6-8 6" fill="none" stroke="#62d88b" stroke-width="2"/>
+
+    <g transform="translate(184 56)">
+      <rect width="112" height="54" rx="8" fill="#17231b" stroke="#31503a"/>
+      <text x="28" y="35" fill="#62d88b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" font-weight="600">NX</text>
+    </g>
+    <path d="M296 83H330" stroke="#f0a461" stroke-width="2"/>
+    <path d="m324 77 8 6-8 6" fill="none" stroke="#f0a461" stroke-width="2"/>
+
+    <g transform="translate(340 56)">
+      <rect width="118" height="54" rx="8" fill="#2a2018" stroke="#60432d"/>
+      <text x="24" y="35" fill="#f0a461" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" font-weight="600">302</text>
+    </g>
+
+    <text x="28" y="151" fill="#a9b5ac" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">URL CHECK  /  REDIS CLAIM  /  REDIRECT</text>
+  </g>
+
+  <g id="metadata" transform="translate(64 306)">
+    <text x="0" y="0" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">TYPESCRIPT</text>
+    <circle cx="128" cy="-6" r="3" fill="#62d88b"/>
+    <text x="148" y="0" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">FASTIFY</text>
+    <circle cx="258" cy="-6" r="3" fill="#62d88b"/>
+    <text x="278" y="0" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">REDIS</text>
+    <circle cx="388" cy="-6" r="3" fill="#62d88b"/>
+    <text x="408" y="0" fill="#7f8f83" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">SVELTE</text>
+  </g>
+
+  <text x="1136" y="314" text-anchor="end" fill="#f0a461" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="600">v2 / 90d</text>
+</svg>
