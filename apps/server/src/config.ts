@@ -133,10 +133,7 @@ function validateRedisUrl(raw: string, password: string): string {
   return parsed.toString();
 }
 
-function parseTrustProxyCidrs(
-  raw: string | undefined,
-  nodeEnv: NodeEnvironment,
-): readonly Cidr[] {
+function parseTrustProxyCidrs(raw: string | undefined, nodeEnv: NodeEnvironment): readonly Cidr[] {
   if (raw === undefined || raw.trim() === '') {
     return [];
   }

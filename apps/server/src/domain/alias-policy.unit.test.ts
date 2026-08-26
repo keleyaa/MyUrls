@@ -17,12 +17,9 @@ describe('alias policy', () => {
     'Kaunch',
     'foo/bar',
     'foo%2Fbar',
-  ])(
-    'rejects invalid alias %s',
-    (value) => {
-      expect(() => normalizeAlias(value)).toThrow(AliasInvalidError);
-    },
-  );
+  ])('rejects invalid alias %s', (value) => {
+    expect(() => normalizeAlias(value)).toThrow(AliasInvalidError);
+  });
 
   it('recognizes reserved paths case-insensitively', () => {
     expect(isReservedCode('API')).toBe(true);

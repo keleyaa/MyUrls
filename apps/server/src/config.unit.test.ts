@@ -84,12 +84,8 @@ describe('configuration', () => {
       PUBLIC_BASE_URL: 'https://myurl.example',
       TURNSTILE_MODE: 'cloudflare',
     };
-    expect(() =>
-      parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '0.0.0.0/0' }),
-    ).toThrow();
-    expect(() =>
-      parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '::/0' }),
-    ).toThrow();
+    expect(() => parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '0.0.0.0/0' })).toThrow();
+    expect(() => parseConfig({ ...productionEnv, TRUST_PROXY_CIDRS: '::/0' })).toThrow();
   });
 
   it('allows disabled Turnstile and the memory store only in test/development', () => {
