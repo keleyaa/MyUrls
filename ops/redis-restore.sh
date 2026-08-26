@@ -40,16 +40,8 @@ checksum_dir=$(CDPATH= cd -- "$(dirname -- "$checksum_file")" && pwd)
 checksum_name=$(basename -- "$checksum_file")
 (CDPATH= cd -- "$checksum_dir" && shasum -a 256 -c "$checksum_name")
 
-docker volume create "$volume" >/dev/null
-volume_created=1
-backup_dir=$(CDPATH= cd -- "$(dirname -- "$backup_file")" && pwd)
-backup_name=$(basename -- "$backup_file")
-docker run --rm --user root \
-  --mount "type=volume,source=$volume,target=/data" \
-  --mount "type=bind,source=$backup_dir,target=/backup,readonly" \
-  "$image" sh -ec "cp /backup/$backup_name /data/dump.rdb && chown redis:redis /data/dump.rdb"
-
 container="myurl-v2-restore-$$-$(date +%s)"
+volume_created=0
 cleanup() {
   status=$?
   docker rm -f "$container" >/dev/null 2>&1 || true
@@ -59,6 +51,15 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT HUP INT TERM
+
+docker volume create "$volume" >/dev/null
+volume_created=1
+backup_dir=$(CDPATH= cd -- "$(dirname -- "$backup_file")" && pwd)
+backup_name=$(basename -- "$backup_file")
+docker run --rm --user root \
+  --mount "type=volume,source=$volume,target=/data" \
+  --mount "type=bind,source=$backup_dir,target=/backup,readonly" \
+  "$image" sh -ec "cp /backup/$backup_name /data/dump.rdb && chown redis:redis /data/dump.rdb"
 
 docker run -d --name "$container" \
   --mount "type=volume,source=$volume,target=/data" \
