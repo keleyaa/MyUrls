@@ -11,9 +11,13 @@ export const RESERVED_CODES = new Set([
 
 const ALIAS_PATTERN = /^[a-z0-9_-]{4,32}$/;
 
+function isAscii(value: string): boolean {
+  return [...value].every((character) => character.charCodeAt(0) <= 0x7f);
+}
+
 export function normalizeAlias(value: string): string {
   const trimmed = value.trim();
-  if (!/^[\x00-\x7f]*$/.test(trimmed)) {
+  if (!isAscii(trimmed)) {
     throw new AliasInvalidError();
   }
   const normalized = trimmed.toLowerCase();
