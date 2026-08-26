@@ -152,8 +152,4 @@ ghcr.io/keleyaa/myurls:v2.0.0
 ghcr.io/keleyaa/myurls:latest
 ```
 
-## 运维边界
-
-部署、备份、恢复和回滚步骤见 [v2 运维指南](docs/operations.md)。备份默认不写入 Git；生产部署前应在干净环境执行一次恢复演练。
-
 项目链接：[GitHub](https://github.com/keleyaa/MyUrls) · [订阅转换](https://sub.ml1.one) · MIT License
