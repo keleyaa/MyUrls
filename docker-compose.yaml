@@ -1,72 +1,93 @@
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: '10m'
+    max-file: '3'
 
 services:
-  myurls:
-    build: .
+  app:
+    image: myurl-v2-app:local
+    build:
+      context: .
+      target: runtime
     restart: unless-stopped
     environment:
-      TZ: Asia/Shanghai
-      MYURLS_PORT: ${MYURLS_PORT:-8080}
-      MYURLS_DOMAIN: ${MYURLS_DOMAIN:-example.com}
-      MYURLS_PROTO: ${MYURLS_PROTO:-https}
-      MYURLS_BASE_URL: ${MYURLS_BASE_URL:-}
-      MYURLS_REDIS_CONN: ${MYURLS_REDIS_CONN:-myurls-redis:6379}
-      MYURLS_REDIS_URL: ${MYURLS_REDIS_URL:-}
-      MYURLS_REDIS_PASSWORD: ${MYURLS_REDIS_PASSWORD:-}
-      MYURLS_API_TOKEN: ${MYURLS_API_TOKEN:-}
-      MYURLS_RATE_LIMIT_RPS: ${MYURLS_RATE_LIMIT_RPS:-5}
-      MYURLS_RATE_LIMIT_BURST: ${MYURLS_RATE_LIMIT_BURST:-10}
-      MYURLS_MAX_BODY_BYTES: ${MYURLS_MAX_BODY_BYTES:-16384}
-      MYURLS_READ_HEADER_TIMEOUT: ${MYURLS_READ_HEADER_TIMEOUT:-5s}
-      MYURLS_READ_TIMEOUT: ${MYURLS_READ_TIMEOUT:-10s}
-      MYURLS_WRITE_TIMEOUT: ${MYURLS_WRITE_TIMEOUT:-10s}
-      MYURLS_IDLE_TIMEOUT: ${MYURLS_IDLE_TIMEOUT:-60s}
-      MYURLS_SHUTDOWN_TIMEOUT: ${MYURLS_SHUTDOWN_TIMEOUT:-10s}
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_PORT: '3000'
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      IP_HASH_SECRET: ${IP_HASH_SECRET:-}
+      TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS:-}
+      TURNSTILE_ENABLED: ${TURNSTILE_ENABLED:-true}
+      TURNSTILE_MODE: ${TURNSTILE_MODE:-cloudflare}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_HOSTNAME: ${TURNSTILE_HOSTNAME:-}
+      CREATE_DIRECT_LIMIT_10M: ${CREATE_DIRECT_LIMIT_10M:-5}
+      CREATE_HARD_LIMIT_10M: ${CREATE_HARD_LIMIT_10M:-20}
+      CREATE_HARD_LIMIT_1D: ${CREATE_HARD_LIMIT_1D:-100}
+      RISK_CHALLENGE_SCORE: ${RISK_CHALLENGE_SCORE:-3}
+      RISK_BLOCK_SCORE: ${RISK_BLOCK_SCORE:-8}
+      REDIS_TIMEOUT_MS: ${REDIS_TIMEOUT_MS:-750}
+      TURNSTILE_TIMEOUT_MS: ${TURNSTILE_TIMEOUT_MS:-2500}
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-10000}
+      SHUTDOWN_TIMEOUT_MS: ${SHUTDOWN_TIMEOUT_MS:-10000}
     ports:
-      - "${MYURLS_PORT:-8080}:${MYURLS_PORT:-8080}"
+      - '127.0.0.1:${APP_PORT:-3000}:3000'
     depends_on:
-      myurls-redis:
+      redis:
         condition: service_healthy
     read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    user: node
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    stop_grace_period: ${MYURLS_STOP_GRACE_PERIOD:-20s}
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/live').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
     logging: *default-logging
 
-  myurls-redis:
+  redis:
     image: redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236
     restart: unless-stopped
     environment:
-      TZ: Asia/Shanghai
-      MYURLS_REDIS_PASSWORD: ${MYURLS_REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     command:
       - /bin/sh
       - -ec
       - |
-        if [ -n "$$MYURLS_REDIS_PASSWORD" ]; then
-          exec /usr/local/bin/docker-entrypoint.sh redis-server --requirepass "$$MYURLS_REDIS_PASSWORD"
+        redis_args="--appendonly yes --appendfsync everysec --save 900 1 --save 300 10 --save 60 10000"
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server $$redis_args --requirepass "$$REDIS_PASSWORD"
         fi
-        exec /usr/local/bin/docker-entrypoint.sh redis-server
+        exec redis-server $$redis_args
     volumes:
-      - type: bind
-        source: "${MYURLS_REDIS_DATA_PATH:-./data/redis}"
-        target: /data
+      - myurl-v2-redis-data:/data
     healthcheck:
       test:
         - CMD-SHELL
         - >-
-          if [ -n "$$MYURLS_REDIS_PASSWORD" ]; then
-            REDISCLI_AUTH="$$MYURLS_REDIS_PASSWORD" redis-cli ping;
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping;
           else
             redis-cli ping;
           fi | grep -qx PONG
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 12
     logging: *default-logging
+
+volumes:
+  myurl-v2-redis-data:

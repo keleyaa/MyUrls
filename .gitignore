@@ -6,10 +6,12 @@ data/
 
 .env
 dist/
+*.tsbuildinfo
 MyUrls 
 node_modules/
 playwright-report/
 test-results/
+coverage/
 .superpowers/
 .worktrees/
 

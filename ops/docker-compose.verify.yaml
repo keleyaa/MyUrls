@@ -1,0 +1,4 @@
+services:
+  redis:
+    ports:
+      - '127.0.0.1:${REDIS_VERIFY_PORT:-16379}:6379'
