@@ -9,7 +9,7 @@
 
 <section class="result" aria-label="短链接结果">
   <div class="result-topline">
-    <span class="result-label">SHORT LINK</span>
+    <span class="result-label">短链接</span>
     <span class="expiry">90 天后自动失效</span>
   </div>
   <button class="result-copy" type="button" on:click={onCopy} aria-label="复制短链接">

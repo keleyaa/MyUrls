@@ -197,14 +197,18 @@
 
   <main>
     <section class="intro" aria-labelledby="page-title">
-      <div class="intro-kicker">
-        <span class="kicker-line"></span><span>OPEN SOURCE / LINK UTILITY</span>
-      </div>
       <h1 id="page-title">myurl</h1>
       <p>把长链接收进一个短而清晰的入口。</p>
     </section>
 
     <section class="workspace" aria-label="短链接生成器">
+      <header class="workspace-header">
+        <div>
+          <h2>生成短链接</h2>
+        </div>
+        <span class="workspace-expiry">90 天有效</span>
+      </header>
+
       <LinkComposer
         bind:url
         bind:alias

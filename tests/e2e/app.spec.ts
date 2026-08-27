@@ -146,7 +146,7 @@ test.describe('myurl user flows', () => {
       }),
     );
     await openTool(page);
-    await expect(page.getByText('service degraded')).toBeVisible();
+    await expect(page.getByText('服务异常')).toBeVisible();
     await expect(page.getByLabel('目标 URL')).toBeEnabled();
   });
 

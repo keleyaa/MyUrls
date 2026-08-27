@@ -19,18 +19,29 @@
 <form class="composer" on:submit={submit} novalidate>
   <div class="field-group">
     <label for="target-url">目标 URL</label>
-    <input
-      id="target-url"
-      name="url"
-      type="url"
-      bind:value={url}
-      placeholder="https://example.com/article"
-      autocomplete="url"
-      spellcheck="false"
-      aria-invalid={urlError ? 'true' : 'false'}
-      aria-describedby={urlError ? 'url-error' : 'url-hint'}
-      disabled={submitting}
-    />
+    <div class="url-input-row">
+      <input
+        id="target-url"
+        name="url"
+        type="url"
+        bind:value={url}
+        placeholder="https://example.com/article"
+        autocomplete="url"
+        spellcheck="false"
+        aria-invalid={urlError ? 'true' : 'false'}
+        aria-describedby={urlError ? 'url-error' : 'url-hint'}
+        disabled={submitting}
+      />
+      <button class="primary-action" type="submit" disabled={submitting}>
+        {#if submitting}
+          <span class="spinner" aria-hidden="true"></span>
+          <span>生成中</span>
+        {:else}
+          <Link2 size={18} aria-hidden="true" />
+          <span>生成并复制</span>
+        {/if}
+      </button>
+    </div>
     <div class="field-meta">
       <span id="url-hint">仅支持 HTTP(S) 地址</span>
       {#if urlError}<span id="url-error" class="field-error">{urlError}</span>{/if}
@@ -71,15 +82,6 @@
     >
       <span>{aliasOpen ? '收起别名' : '自定义别名'}</span>
       <ChevronDown size={16} class={aliasOpen ? 'rotated' : ''} aria-hidden="true" />
-    </button>
-    <button class="primary-action" type="submit" disabled={submitting}>
-      {#if submitting}
-        <span class="spinner" aria-hidden="true"></span>
-        <span>生成中</span>
-      {:else}
-        <Link2 size={18} aria-hidden="true" />
-        <span>生成并复制</span>
-      {/if}
     </button>
   </div>
 </form>
