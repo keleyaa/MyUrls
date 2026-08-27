@@ -143,9 +143,9 @@ GitHub Actions 的 `Publish GHCR image` 支持版本化手动发布：
 
 1. 打开 **Actions → Publish GHCR image → Run workflow**。
 2. 在 `version` 中输入稳定版本，例如 `v2.0.0`。
-3. 工作流先执行完整 CI，再发布多架构镜像。
+3. 工作流先执行完整 CI，再发布多架构镜像，并为当前提交创建同名的 annotated Git tag。
 
-稳定版本会同时发布版本标签、提交 SHA 标签和 `latest`；不符合 `vX.Y.Z` 的手动输入会被拒绝。镜像地址：
+稳定版本会同时发布版本标签、提交 SHA 标签和 `latest`；不符合 `vX.Y.Z` 的手动输入会被拒绝。若远端同名 Git tag 已存在，工作流会在构建前失败，避免覆盖既有稳定版本。镜像地址：
 
 ```text
 ghcr.io/keleyaa/myurls:v2.0.0

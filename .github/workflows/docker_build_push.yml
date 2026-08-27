@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Check out repository
@@ -100,12 +100,23 @@ jobs:
           fi
 
           {
+            printf 'release_tag=%s\n' "${candidate}"
             printf 'version_tag=%s\n' "${version_tag}"
             printf 'publish_latest=%s\n' "${publish_latest}"
             printf 'tags<<EOF\n'
             printf '%s\n' "${tags}"
             printf 'EOF\n'
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Reject an existing manual Git tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ steps.image_tags.outputs.release_tag }}
+        run: |
+          if git ls-remote --exit-code --refs origin "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "Git tag ${RELEASE_TAG} already exists and stable releases are immutable." >&2
+            exit 1
+          fi
 
       - name: Build and publish image
         id: build
@@ -120,9 +131,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Create Git tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ steps.image_tags.outputs.release_tag }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag --annotate "${RELEASE_TAG}" "${RELEASE_SHA}" --message "Release ${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+
       - name: Publish image digest summary
         env:
+          EVENT_NAME: ${{ github.event_name }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ steps.image_tags.outputs.release_tag }}
           VERSION_TAG: ${{ steps.image_tags.outputs.version_tag }}
           PUBLISH_LATEST: ${{ steps.image_tags.outputs.publish_latest }}
         run: |
@@ -130,6 +154,11 @@ jobs:
           printf -- '- Image: `ghcr.io/keleyaa/myurls`\n' >> "${GITHUB_STEP_SUMMARY}"
           printf -- '- Version tag: `%s`\n' "${VERSION_TAG}" >> "${GITHUB_STEP_SUMMARY}"
           printf -- '- Commit tag: `%s`\n' "${GITHUB_SHA}" >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${EVENT_NAME}" == 'workflow_dispatch' ]]; then
+            printf -- '- Git tag: `%s` created for this commit\n' "${RELEASE_TAG}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf -- '- Git tag: `%s` triggered this release\n' "${RELEASE_TAG}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
           if [[ "${PUBLISH_LATEST}" == true ]]; then
             printf -- '- Stable tag: `latest` moved to this digest\n' >> "${GITHUB_STEP_SUMMARY}"
           else
