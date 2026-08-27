@@ -6,7 +6,7 @@ import { parseCidr } from './ip.js';
 export const LINK_TTL_SECONDS = 7_776_000;
 export const MAX_URL_BYTES = 4096;
 export const MAX_BODY_BYTES = 16 * 1024;
-export const AUTO_CODE_LENGTH = 8;
+export const AUTO_CODE_LENGTH = 10;
 export const MAX_CODE_ATTEMPTS = 5;
 
 export type NodeEnvironment = 'development' | 'test' | 'production';
@@ -31,6 +31,7 @@ export interface AppConfig {
     direct10m: number;
     hard10m: number;
     hard1d: number;
+    resolve10s: number;
     challengeScore: number;
     blockScore: number;
   };
@@ -172,6 +173,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   const direct10m = parseInteger(env, 'CREATE_DIRECT_LIMIT_10M', 5, 1);
   const hard10m = parseInteger(env, 'CREATE_HARD_LIMIT_10M', 20, 1);
   const hard1d = parseInteger(env, 'CREATE_HARD_LIMIT_1D', 100, 1);
+  const resolve10s = parseInteger(env, 'RESOLVE_LIMIT_10S', 600, 1, 1_000_000);
   const challengeScore = parseInteger(env, 'RISK_CHALLENGE_SCORE', 3, 0);
   const blockScore = parseInteger(env, 'RISK_BLOCK_SCORE', 8, 0);
   if (hard10m <= direct10m || hard1d <= hard10m || blockScore <= challengeScore) {
@@ -224,7 +226,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       secretKey,
       hostname,
     },
-    limits: { direct10m, hard10m, hard1d, challengeScore, blockScore },
+    limits: { direct10m, hard10m, hard1d, resolve10s, challengeScore, blockScore },
     redisTimeoutMs: parseInteger(env, 'REDIS_TIMEOUT_MS', 750, 1),
     turnstileTimeoutMs: parseInteger(env, 'TURNSTILE_TIMEOUT_MS', 2500, 1),
     requestTimeoutMs: parseInteger(env, 'REQUEST_TIMEOUT_MS', 10000, 1),

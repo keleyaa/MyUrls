@@ -1,6 +1,7 @@
 export interface LinkStore {
   claim(code: string, targetUrl: string, ttlSeconds: number): Promise<boolean>;
   lookup(code: string): Promise<string | undefined>;
+  incrementResolveCounter(fingerprint: string): Promise<number>;
   incrementCreateCounters(
     fingerprint: string,
     utcDate: string,

@@ -5,10 +5,10 @@ import { BASE62, generateShortCode, isValidCode } from './short-code.js';
 describe('short code generation', () => {
   it('generates a fixed length Base62 code', () => {
     const code = generateShortCode(() => new Uint8Array(32).fill(0));
-    expect(code).toBe('00000000');
-    expect(code).toHaveLength(8);
+    expect(code).toBe('0000000000');
+    expect(code).toHaveLength(10);
     expect([...code].every((character) => BASE62.includes(character))).toBe(true);
-    expect(generateShortCode()).toMatch(/^[0-9A-Za-z]{8}$/);
+    expect(generateShortCode()).toMatch(/^[0-9A-Za-z]{10}$/);
   });
 
   it('rejects invalid code shapes', () => {

@@ -17,10 +17,11 @@ import {
   DependencyUnavailableError,
   InvalidRequestError,
   isMyUrlError,
+  RateLimitedError,
   toErrorResponse,
 } from './errors.js';
 import type { MyUrlError } from './errors.js';
-import { getClientIp } from './ip.js';
+import { fingerprintIp, getClientIp } from './ip.js';
 import type { LinkStore, TurnstileVerifier } from './ports.js';
 import { ShortLinkService } from './service.js';
 
@@ -59,6 +60,21 @@ function isJsonContentType(value: string | undefined): boolean {
   return value !== undefined && /^application\/json(?:\s*;|$)/i.test(value);
 }
 
+function requestClientIp(request: FastifyRequest, config: AppConfig): string {
+  return getClientIp(
+    request.raw.socket.remoteAddress,
+    {
+      'x-forwarded-for':
+        typeof request.headers['x-forwarded-for'] === 'string'
+          ? request.headers['x-forwarded-for']
+          : undefined,
+      forwarded:
+        typeof request.headers.forwarded === 'string' ? request.headers.forwarded : undefined,
+    },
+    config.trustProxyCidrs,
+  );
+}
+
 function errorPage(statusCode: 404 | 503): string {
   const title = statusCode === 404 ? 'Link not found' : 'Service unavailable';
   const message =
@@ -91,6 +107,24 @@ function sendBrowserError(
 ): FastifyReply {
   reply.code(statusCode).type('text/html; charset=utf-8');
   return headOnly ? reply.send() : reply.send(errorPage(statusCode));
+}
+
+function sendBrowserRateLimited(
+  reply: FastifyReply,
+  retryAfterSeconds: number,
+  headOnly: boolean,
+): FastifyReply {
+  reply.code(429).header('Retry-After', String(retryAfterSeconds)).type('text/html; charset=utf-8');
+  const body = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Too many requests · myurl</title>
+  </head>
+  <body><p>Too many requests. Please try again later.</p></body>
+</html>`;
+  return headOnly ? reply.send() : reply.send(body);
 }
 
 function sendJsonError(
@@ -227,18 +261,7 @@ export function buildApp(options: BuildAppOptions) {
     },
     async (request, reply) => {
       const input = request.body as CreateLinkInput;
-      const clientIp = getClientIp(
-        request.raw.socket.remoteAddress,
-        {
-          'x-forwarded-for':
-            typeof request.headers['x-forwarded-for'] === 'string'
-              ? request.headers['x-forwarded-for']
-              : undefined,
-          forwarded:
-            typeof request.headers.forwarded === 'string' ? request.headers.forwarded : undefined,
-        },
-        config.trustProxyCidrs,
-      );
+      const clientIp = requestClientIp(request, config);
       const result = await service.create(input, { clientIp });
       request.log.info({ event: 'link.create', result: 'success' }, 'link created');
       return reply.code(201).send(result);
@@ -249,6 +272,13 @@ export function buildApp(options: BuildAppOptions) {
     request: FastifyRequest<{ Params: { code: string } }>,
     reply: FastifyReply,
   ) => {
+    const clientIp = requestClientIp(request, config);
+    const resolveCount = await store.incrementResolveCounter(
+      fingerprintIp(config.ipHashSecret, clientIp),
+    );
+    if (resolveCount > config.limits.resolve10s) {
+      throw new RateLimitedError(10);
+    }
     const targetUrl = await service.resolve(request.params.code);
     if (targetUrl === undefined) {
       return sendBrowserError(reply, 404, request.method === 'HEAD');
@@ -293,6 +323,13 @@ export function buildApp(options: BuildAppOptions) {
       (request.method === 'GET' || request.method === 'HEAD') &&
       request.routeOptions.url === '/:code';
     if (isRedirectRequest) {
+      if (isMyUrlError(error) && error.code === 'rate_limited') {
+        return sendBrowserRateLimited(
+          reply,
+          error.retryAfterSeconds ?? 10,
+          request.method === 'HEAD',
+        );
+      }
       return sendBrowserError(reply, 503, request.method === 'HEAD');
     }
     if (isMyUrlError(error)) {

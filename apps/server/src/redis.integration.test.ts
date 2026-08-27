@@ -54,6 +54,13 @@ describe('RedisLinkStore with a real Redis server', () => {
     );
   });
 
+  it('increments resolve counters atomically with a short TTL', async () => {
+    const fingerprint = 'c'.repeat(64);
+    expect(await store.incrementResolveCounter(fingerprint)).toBe(1);
+    expect(await store.incrementResolveCounter(fingerprint)).toBe(2);
+    expect(await client.ttl(`myurl:rate:resolve:10s:${fingerprint}`)).toBeGreaterThan(8);
+  });
+
   it('increments risk atomically with a bounded TTL', async () => {
     const fingerprint = 'b'.repeat(64);
     expect(await store.addRiskScore(fingerprint, 3)).toBe(3);

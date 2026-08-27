@@ -9,14 +9,14 @@
   <a href="https://github.com/keleyaa/MyUrls/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-1769ff.svg" alt="MIT License"></a>
 </p>
 
-匿名、无统计的 HTTP(S) 短链工具。提交一个 URL，生成 8 位短码；短链固定有效 90 天，并在浏览器允许时自动复制。
+匿名、无统计的 HTTP(S) 短链工具。提交一个 URL，生成 10 位短码；短链固定有效 90 天，并在浏览器允许时自动复制。
 
 ## 先看结果
 
 MyURL v2 只做一件事：把一个绝对 HTTP(S) URL 变成一个短而清晰、会自动过期的入口。
 
 - 不需要账号，不记录访问统计，也不保存原始 IP。
-- 自动短码使用 8 位大小写敏感 Base62；也可以指定 4–32 位 ASCII 小写别名。
+- 自动短码使用 10 位大小写敏感 Base62；也可以指定 4–32 位 ASCII 小写别名。自定义别名是公开路径，不应承载保密信息。
 - 结果默认自动复制；浏览器拒绝剪贴板权限时，点击结果即可再次复制。
 
 ## 请求路径
@@ -108,8 +108,8 @@ curl --fail-with-body http://127.0.0.1:3000/api/v1/links \
 
 ```text
 POST /api/v1/links  -> 201，返回 code、shortUrl、expiresAt
-GET  /:code         -> 302，Location 指向原始目标
-HEAD /:code         -> 302，不返回响应体
+GET  /:code         -> 302，Location 指向原始目标；高频探测可能返回 429
+HEAD /:code         -> 302，不返回响应体；高频探测可能返回 429
 GET  /health/live   -> 200，不访问 Redis
 GET  /health/ready  -> 200 或 503，执行 Redis PING
 ```

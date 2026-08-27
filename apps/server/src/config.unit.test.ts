@@ -24,6 +24,7 @@ describe('configuration', () => {
       direct10m: 5,
       hard10m: 20,
       hard1d: 100,
+      resolve10s: 600,
       challengeScore: 3,
       blockScore: 8,
     });

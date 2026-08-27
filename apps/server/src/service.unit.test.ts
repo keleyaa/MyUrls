@@ -31,7 +31,7 @@ function makeService(
 describe('ShortLinkService', () => {
   it('creates an automatic short link with a fixed expiry', async () => {
     const store = new FakeStore();
-    const service = makeService(store, new FakeTurnstile(), makeTestConfig(), () => 'Abcd1234');
+    const service = makeService(store, new FakeTurnstile(), makeTestConfig(), () => 'Abcd123456');
 
     const result = await service.create(
       { url: 'HTTPS://Example.COM/docs?q=1' },
@@ -39,11 +39,11 @@ describe('ShortLinkService', () => {
     );
 
     expect(result).toEqual({
-      code: 'Abcd1234',
-      shortUrl: 'https://myurl.example/Abcd1234',
+      code: 'Abcd123456',
+      shortUrl: 'https://myurl.example/Abcd123456',
       expiresAt: new Date(fixedNow().getTime() + LINK_TTL_SECONDS * 1000).toISOString(),
     });
-    expect(store.links.get('Abcd1234')).toBe('https://example.com/docs?q=1');
+    expect(store.links.get('Abcd123456')).toBe('https://example.com/docs?q=1');
   });
 
   it('uses secure defaults when optional service dependencies are omitted', async () => {
@@ -57,7 +57,7 @@ describe('ShortLinkService', () => {
       { url: 'https://example.com/defaults' },
       { clientIp: '198.51.100.4' },
     );
-    expect(result.code).toMatch(/^[0-9A-Za-z]{8}$/);
+    expect(result.code).toMatch(/^[0-9A-Za-z]{10}$/);
   });
 
   it('normalizes and stores a custom alias', async () => {
@@ -120,7 +120,7 @@ describe('ShortLinkService', () => {
       config,
       (() => {
         let count = 0;
-        return () => `Code${++count}123`;
+        return () => `Code${String(++count).padStart(2, '0')}1234`;
       })(),
     );
 
@@ -132,7 +132,7 @@ describe('ShortLinkService', () => {
       { url: 'https://example.com/third', challengeToken: 'valid-token' },
       { clientIp: '198.51.100.4' },
     );
-    expect(result.code).toBe('Code2123');
+    expect(result.code).toBe('Code021234');
     expect(turnstile.calls).toBe(1);
   });
 
@@ -140,7 +140,7 @@ describe('ShortLinkService', () => {
     const store = new FakeStore();
     const turnstile = new FakeTurnstile();
     const config = makeTestConfig({ limits: { direct10m: 1, hard10m: 20, hard1d: 100 } });
-    const service = makeService(store, turnstile, config, () => 'Code1234');
+    const service = makeService(store, turnstile, config, () => 'Code123456');
     const fingerprint = fingerprintIp(config.ipHashSecret, '198.51.100.4');
 
     await service.create({ url: 'https://example.com/first' }, { clientIp: '198.51.100.4' });
@@ -157,7 +157,7 @@ describe('ShortLinkService', () => {
     const store = new FakeStore();
     const turnstile = new FakeTurnstile('valid-token', true);
     const config = makeTestConfig({ limits: { direct10m: 1, hard10m: 20, hard1d: 100 } });
-    const service = makeService(store, turnstile, config, () => 'Code1234');
+    const service = makeService(store, turnstile, config, () => 'Code123456');
 
     await service.create({ url: 'https://example.com/first' }, { clientIp: '198.51.100.4' });
     await expect(
@@ -171,7 +171,7 @@ describe('ShortLinkService', () => {
   it('blocks hard limits and existing risk scores', async () => {
     const store = new FakeStore();
     const config = makeTestConfig({ limits: { direct10m: 1, hard10m: 2, hard1d: 3 } });
-    const service = makeService(store, new FakeTurnstile(), config, () => 'Code1234');
+    const service = makeService(store, new FakeTurnstile(), config, () => 'Code123456');
 
     await service.create({ url: 'https://example.com/first' }, { clientIp: '198.51.100.4' });
     await expect(
@@ -185,7 +185,7 @@ describe('ShortLinkService', () => {
     const riskFingerprint = fingerprintIp(config.ipHashSecret, '203.0.113.10');
     riskStore.risks.set(riskFingerprint, 8);
     await expect(
-      makeService(riskStore, new FakeTurnstile(), config, () => 'Code5678').create(
+      makeService(riskStore, new FakeTurnstile(), config, () => 'Code567890').create(
         { url: 'https://example.com' },
         { clientIp: '203.0.113.10' },
       ),
@@ -194,23 +194,23 @@ describe('ShortLinkService', () => {
 
   it('retries generated collisions and reports exhaustion without overwriting', async () => {
     const store = new FakeStore();
-    store.links.set('taken123', 'https://old.example/');
+    store.links.set('taken12345', 'https://old.example/');
     let calls = 0;
     const service = makeService(store, new FakeTurnstile(), makeTestConfig(), () => {
       calls += 1;
-      return calls < 3 ? 'taken123' : 'fresh123';
+      return calls < 3 ? 'taken12345' : 'fresh12345';
     });
     const result = await service.create(
       { url: 'https://example.com' },
       { clientIp: '198.51.100.4' },
     );
-    expect(result.code).toBe('fresh123');
-    expect(store.links.get('taken123')).toBe('https://old.example/');
+    expect(result.code).toBe('fresh12345');
+    expect(store.links.get('taken12345')).toBe('https://old.example/');
 
     const exhaustedStore = new FakeStore();
-    exhaustedStore.links.set('taken123', 'https://old.example/');
+    exhaustedStore.links.set('taken12345', 'https://old.example/');
     await expect(
-      makeService(exhaustedStore, new FakeTurnstile(), makeTestConfig(), () => 'taken123').create(
+      makeService(exhaustedStore, new FakeTurnstile(), makeTestConfig(), () => 'taken12345').create(
         { url: 'https://example.com' },
         { clientIp: '198.51.100.4' },
       ),

@@ -34,6 +34,16 @@ export class FakeStore implements LinkStore {
     return this.links.get(code);
   }
 
+  async incrementResolveCounter(fingerprint: string): Promise<number> {
+    if (this.options.failCounters) {
+      throw new Error('counter failed');
+    }
+    const key = `resolve:${fingerprint}`;
+    const next = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, next);
+    return next;
+  }
+
   async incrementCreateCounters(
     fingerprint: string,
     _utcDate: string,
@@ -112,6 +122,7 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}): AppConfig {
       direct10m: 5,
       hard10m: 20,
       hard1d: 100,
+      resolve10s: 600,
       challengeScore: 3,
       blockScore: 8,
     },

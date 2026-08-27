@@ -54,6 +54,7 @@ curl --fail --silent http://127.0.0.1:${APP_PORT:-3000}/health/ready
 | `CREATE_DIRECT_LIMIT_10M` | `5`                    | 10 分钟内免挑战创建数                                |
 | `CREATE_HARD_LIMIT_10M`   | `20`                   | 10 分钟硬上限                                        |
 | `CREATE_HARD_LIMIT_1D`    | `100`                  | UTC 日硬上限                                         |
+| `RESOLVE_LIMIT_10S`       | `600`                  | 单个 IP 在 10 秒内的短链解析上限                     |
 | `RISK_CHALLENGE_SCORE`    | `3`                    | 触发挑战的风险分                                     |
 | `RISK_BLOCK_SCORE`        | `8`                    | 触发 `429` 的风险分                                  |
 
@@ -61,7 +62,7 @@ curl --fail --silent http://127.0.0.1:${APP_PORT:-3000}/health/ready
 
 ## 日志与隐私
 
-日志是 stdout 上的单行 JSON。允许字段包括 request ID、路由模板、状态、耗时、业务结果分类和依赖分类。禁止记录原始 IP、完整 HMAC、目标 URL、短码、别名、Location、请求体、响应体、Turnstile token、密钥和 Redis 凭据。
+日志是 stdout 上的单行 JSON。允许字段包括 request ID、路由模板、状态、耗时、业务结果分类和依赖分类。禁止记录原始 IP、完整 HMAC、目标 URL、短码、别名、Location、请求体、响应体、Turnstile token、密钥和 Redis 凭据。短链解析按 IP 限流，超限返回 `429` 和 `Retry-After`；公网入口仍应配置更高层的 DDoS/WAF 防护。
 
 Compose 使用 `json-file` 轮转，单文件 10 MB、最多 3 个文件。异机或对象存储复制由部署者负责。
 
@@ -74,7 +75,7 @@ mkdir -p ops/backups
 ./ops/redis-backup.sh ops/backups
 ```
 
-脚本使用 `redis-cli --rdb` 生成 RDB 和 SHA-256 sidecar，保留最近 7 个 RDB。`ops/backups` 不应提交到 Git；生产环境应把结果复制到异机或对象存储。只保留在同一 VPS 不构成灾难恢复。
+脚本使用 `redis-cli --rdb` 生成 RDB 和 SHA-256 sidecar，保留最近 7 个 RDB。RDB/AOF 包含短链目标 URL，应按敏感数据保护并在异机或对象存储侧加密。`ops/backups` 不应提交到 Git；生产环境应把结果复制到异机或对象存储。只保留在同一 VPS 不构成灾难恢复。
 
 建议使用部署者自己的调度器每天运行一次，并保护备份目录和环境文件权限。备份过程不应把 Redis 密码放入命令行或日志。
 

@@ -11,6 +11,12 @@ if daily_count == 1 then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
 return { short_count, daily_count }
 `;
 
+const SINGLE_COUNTER_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return count
+`;
+
 const RISK_SCRIPT = `
 local existed = redis.call('EXISTS', KEYS[1])
 local score = redis.call('INCRBY', KEYS[1], ARGV[1])
@@ -19,6 +25,7 @@ return score
 `;
 
 const DAILY_COUNTER_TTL_SECONDS = 172800;
+const RESOLVE_COUNTER_TTL_SECONDS = 10;
 const RISK_TTL_SECONDS = 600;
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
@@ -71,6 +78,20 @@ export class RedisLinkStore implements LinkStore {
     return this.command(async () => {
       const result = await this.client.get(`myurl:link:${code}`);
       return result === null ? undefined : result;
+    });
+  }
+
+  async incrementResolveCounter(fingerprint: string): Promise<number> {
+    return this.command(async () => {
+      const result = await this.client.eval(SINGLE_COUNTER_SCRIPT, {
+        keys: [`myurl:rate:resolve:10s:${fingerprint}`],
+        arguments: [String(RESOLVE_COUNTER_TTL_SECONDS)],
+      });
+      const count = Number(result);
+      if (!Number.isSafeInteger(count) || count < 1) {
+        throw new Error('invalid resolve counter result');
+      }
+      return count;
     });
   }
 

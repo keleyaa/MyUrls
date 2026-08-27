@@ -23,6 +23,10 @@ export class MemoryLinkStore implements LinkStore {
     return this.read(this.links, `myurl:link:${code}`);
   }
 
+  async incrementResolveCounter(fingerprint: string): Promise<number> {
+    return this.increment(this.counters, `resolve:${fingerprint}`, 10);
+  }
+
   async incrementCreateCounters(
     fingerprint: string,
     utcDate: string,

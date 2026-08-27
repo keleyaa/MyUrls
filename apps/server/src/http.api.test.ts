@@ -31,7 +31,7 @@ function makeApp(
       store,
       turnstile,
       now: () => new Date('2026-08-26T04:00:00.000Z'),
-      generateCode: () => `Code${String(++codeNumber).padStart(4, '0')}`,
+      generateCode: () => `Code${String(++codeNumber).padStart(6, '0')}`,
     }),
   });
   apps.push(app);
@@ -65,8 +65,8 @@ describe('HTTP contract', () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({
-      code: 'Code0001',
-      shortUrl: 'https://myurl.example/Code0001',
+      code: 'Code000001',
+      shortUrl: 'https://myurl.example/Code000001',
     });
   });
 
@@ -226,6 +226,22 @@ describe('HTTP contract', () => {
     const failed = await failedApp.inject({ method: 'GET', url: `/${code}` });
     expect(failed.statusCode).toBe(503);
     expect(failed.body).not.toContain('Redis');
+  });
+
+  it('rate-limits high-frequency short-link probes without exposing dependencies', async () => {
+    const { app } = makeApp({ limits: { resolve10s: 1 } });
+    const created = await post(app, JSON.stringify({ url: 'https://example.com/rate-limit' }));
+    const code = (created.json() as { code: string }).code;
+
+    expect((await app.inject({ method: 'GET', url: `/${code}` })).statusCode).toBe(302);
+    const blocked = await app.inject({ method: 'GET', url: '/unknown-code' });
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers['retry-after']).toBe('10');
+    expect(blocked.body).not.toContain('Redis');
+
+    const blockedHead = await app.inject({ method: 'HEAD', url: '/another-code' });
+    expect(blockedHead.statusCode).toBe(429);
+    expect(blockedHead.body).toBe('');
   });
 
   it('returns a JSON 404 for unknown API routes', async () => {
