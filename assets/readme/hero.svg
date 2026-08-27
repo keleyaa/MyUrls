@@ -1,53 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
-  <title id="title">MyURL v2 匿名短链工具</title>
-  <desc id="desc">提交一个 HTTP(S) URL，经过校验和 Redis 原子占位后，返回一个固定 90 天有效的短链。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">MyURL v2</title>
+  <desc id="desc">一个自托管的短链服务：将 HTTP(S) URL 转为 90 天有效的短入口。</desc>
 
-  <rect width="1200" height="420" rx="28" fill="#f4f7f9"/>
-  <path d="M64 66H600" stroke="#d7e1e8"/>
-  <path d="M632 66H1136" stroke="#1769ff" opacity=".35"/>
-  <path d="M64 356H1136" stroke="#d7e1e8"/>
+  <rect width="1200" height="320" rx="20" fill="#f7f6f2"/>
+  <rect x="1" y="1" width="1198" height="318" rx="20" fill="none" stroke="#deddd7" stroke-width="2"/>
 
-  <g id="identity" transform="translate(64 58)">
-    <text x="0" y="0" fill="#1769ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="600" letter-spacing="1.2">ANONYMOUS URL TOOL</text>
-    <text x="0" y="94" fill="#18324d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="68" font-weight="700">MyURL v2</text>
-    <text x="0" y="142" fill="#46657d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="25">把长链接收进一个短而清晰的入口。</text>
-    <text x="0" y="190" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">无账号 · 无统计 · 固定 90 天有效</text>
-    <g transform="translate(0 244)">
-      <text x="0" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">POST /api/v1/links</text>
-      <circle cx="220" cy="-6" r="4" fill="#e36f52"/>
-      <text x="240" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">201 CREATED</text>
-    </g>
+  <g id="title-block" transform="translate(64 62)">
+    <text x="0" y="0" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">自托管短链服务</text>
+    <text x="0" y="82" fill="#171b19" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="72" font-weight="700">MyURL v2</text>
+    <text x="0" y="126" fill="#414a46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="26">为 HTTP(S) 链接生成 90 天有效的短入口。</text>
+    <path d="M0 168H520" stroke="#c9cec8" stroke-width="2"/>
+    <text x="0" y="205" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19">匿名 · 无统计 · 结果自动复制</text>
   </g>
 
-  <g id="product-proof" transform="translate(632 42)">
-    <rect width="504" height="286" rx="18" fill="#ffffff" stroke="#d7e1e8"/>
-    <path d="M0 3H504" stroke="#1769ff" stroke-width="3"/>
-    <text x="28" y="42" fill="#18324d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="20" font-weight="600">生成短链接</text>
-    <text x="28" y="70" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">目标 URL</text>
-
-    <rect x="28" y="86" width="448" height="54" rx="10" fill="#f7fafc" stroke="#cbd9e3"/>
-    <text x="44" y="120" fill="#7890a3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19">https://example.com/docs</text>
-    <rect x="342" y="90" width="130" height="46" rx="8" fill="#1769ff"/>
-    <text x="407" y="119" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" font-weight="600">生成并复制</text>
-
-    <path d="M28 168H476" stroke="#e1e8ed"/>
-    <text x="28" y="198" fill="#1769ff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" font-weight="600">短链接</text>
-    <text x="476" y="198" text-anchor="end" fill="#a06b2c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18">90 天后自动失效</text>
-    <rect x="28" y="214" width="448" height="54" rx="10" fill="#edf5ff" stroke="#a9cdfb"/>
-    <text x="44" y="249" fill="#18324d" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="25" font-weight="600">aB3x9K2q</text>
-    <text x="188" y="248" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">/aB3x9K2q</text>
-    <circle cx="450" cy="241" r="7" fill="#1b7c5b"/>
-    <path d="m446 241 3 3 6-7" fill="none" stroke="#ffffff" stroke-width="2"/>
+  <g id="url-specimen" transform="translate(734 56)">
+    <path d="M0 0V208" stroke="#c9cec8" stroke-width="2"/>
+    <text x="34" y="12" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">HTTP(S) URL</text>
+    <text x="34" y="52" fill="#252d2a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22">example.com/docs/release</text>
+    <path d="M34 82H402" stroke="#c9cec8" stroke-width="2"/>
+    <path d="m394 76 10 6-10 6" fill="none" stroke="#0b8f68" stroke-width="2"/>
+    <text x="34" y="122" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">短路径 / 90 天有效</text>
+    <text x="34" y="166" fill="#0b8f68" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="28" font-weight="700">myurl.example/q7R3mK9xTa</text>
+    <text x="34" y="204" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">302 跳转 · Redis TTL</text>
   </g>
-
-  <g id="metadata" transform="translate(64 390)">
-    <text x="0" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">TYPESCRIPT</text>
-    <circle cx="144" cy="-6" r="3" fill="#1769ff"/>
-    <text x="164" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">FASTIFY</text>
-    <circle cx="284" cy="-6" r="3" fill="#1769ff"/>
-    <text x="304" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">REDIS</text>
-    <circle cx="414" cy="-6" r="3" fill="#1769ff"/>
-    <text x="434" y="0" fill="#60788e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">SVELTE</text>
-  </g>
-  <text x="1136" y="390" text-anchor="end" fill="#1b7c5b" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="600">REDIS NX · TTL 90D</text>
 </svg>
