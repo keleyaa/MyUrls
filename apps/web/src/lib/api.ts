@@ -3,8 +3,28 @@ import type {
   CreateLinkInput,
   CreateLinkResponse,
   ErrorCode,
-  ErrorResponse,
+  ProblemDetails,
 } from '@myurl/contracts';
+
+const errorCodes = new Set<ErrorCode>([
+  'invalid_request',
+  'challenge_required',
+  'challenge_invalid',
+  'alias_unavailable',
+  'url_not_allowed',
+  'alias_invalid',
+  'rate_limited',
+  'dependency_unavailable',
+  'code_generation_exhausted',
+]);
+
+const dependencyUnavailable: ProblemDetails = {
+  type: 'urn:myurl:client:dependency-unavailable',
+  title: 'Service unavailable',
+  status: 503,
+  code: 'dependency_unavailable',
+  requestId: 'client',
+};
 
 export class ApiError extends Error {
   readonly status: number;
@@ -12,26 +32,67 @@ export class ApiError extends Error {
   readonly challenge?: Challenge;
   readonly retryAfterSeconds?: number;
 
-  constructor(status: number, response: ErrorResponse) {
-    super(response.error.code);
+  constructor(problem: ProblemDetails) {
+    super(problem.code);
     this.name = 'ApiError';
-    this.status = status;
-    this.code = response.error.code;
-    if (response.challenge !== undefined) {
-      this.challenge = response.challenge;
+    this.status = problem.status;
+    this.code = problem.code;
+    if (problem.challenge !== undefined) {
+      this.challenge = problem.challenge;
     }
-    if (response.error.retryAfterSeconds !== undefined) {
-      this.retryAfterSeconds = response.error.retryAfterSeconds;
+    if (problem.retryAfterSeconds !== undefined) {
+      this.retryAfterSeconds = problem.retryAfterSeconds;
     }
   }
 }
 
-function isErrorResponse(value: unknown): value is ErrorResponse {
-  if (typeof value !== 'object' || value === null || !('error' in value)) {
+function isChallenge(value: unknown): value is Challenge {
+  if (typeof value !== 'object' || value === null) {
     return false;
   }
-  const error = (value as { error?: unknown }).error;
-  return typeof error === 'object' && error !== null && 'code' in error && 'requestId' in error;
+  const candidate = value as { provider?: unknown; siteKey?: unknown };
+  return (
+    candidate.provider === 'turnstile' &&
+    typeof candidate.siteKey === 'string' &&
+    candidate.siteKey.length > 0
+  );
+}
+
+function isProblemDetails(value: unknown): value is ProblemDetails {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.type !== 'string' ||
+    candidate.type.length === 0 ||
+    typeof candidate.title !== 'string' ||
+    candidate.title.length === 0 ||
+    typeof candidate.status !== 'number' ||
+    !Number.isInteger(candidate.status) ||
+    candidate.status < 400 ||
+    candidate.status > 599 ||
+    typeof candidate.code !== 'string' ||
+    !errorCodes.has(candidate.code as ErrorCode) ||
+    typeof candidate.requestId !== 'string' ||
+    candidate.requestId.length === 0 ||
+    candidate.requestId.length > 80
+  ) {
+    return false;
+  }
+
+  if (
+    (candidate.retryAfterSeconds !== undefined &&
+      (typeof candidate.retryAfterSeconds !== 'number' ||
+        !Number.isInteger(candidate.retryAfterSeconds) ||
+        candidate.retryAfterSeconds < 1)) ||
+    (candidate.challenge !== undefined && !isChallenge(candidate.challenge))
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -45,25 +106,23 @@ async function readJson(response: Response): Promise<unknown> {
 export async function createLink(input: CreateLinkInput): Promise<CreateLinkResponse> {
   let response: Response;
   try {
-    response = await fetch('/api/v1/links', {
+    response = await fetch('/api/links', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
     });
   } catch {
-    throw new ApiError(503, {
-      error: { code: 'dependency_unavailable', requestId: 'client' },
-    });
+    throw new ApiError(dependencyUnavailable);
   }
+
   const payload = await readJson(response);
   if (!response.ok) {
-    if (isErrorResponse(payload)) {
-      throw new ApiError(response.status, payload);
+    if (isProblemDetails(payload)) {
+      throw new ApiError(payload);
     }
-    throw new ApiError(503, {
-      error: { code: 'dependency_unavailable', requestId: 'client' },
-    });
+    throw new ApiError(dependencyUnavailable);
   }
+
   return payload as CreateLinkResponse;
 }
 

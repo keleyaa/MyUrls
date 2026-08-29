@@ -33,27 +33,24 @@ export const ErrorCodeSchema = Type.Union([
 
 export type ErrorCode = Static<typeof ErrorCodeSchema>;
 
-export const ErrorDetailSchema = Type.Object({
-  code: ErrorCodeSchema,
-  requestId: Type.String({ minLength: 1, maxLength: 80 }),
-  retryAfterSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
-});
-
-export const ErrorResponseSchema = Type.Object({
-  error: ErrorDetailSchema,
-  challenge: Type.Optional(
-    Type.Object({
-      provider: Type.Literal('turnstile'),
-      siteKey: Type.String({ minLength: 1 }),
-    }),
-  ),
-});
-
-export type ErrorResponse = Static<typeof ErrorResponseSchema>;
-
 export const ChallengeSchema = Type.Object({
   provider: Type.Literal('turnstile'),
   siteKey: Type.String({ minLength: 1 }),
 });
 
 export type Challenge = Static<typeof ChallengeSchema>;
+
+export const ProblemDetailsSchema = Type.Object(
+  {
+    type: Type.String({ minLength: 1 }),
+    title: Type.String({ minLength: 1 }),
+    status: Type.Integer({ minimum: 400, maximum: 599 }),
+    code: ErrorCodeSchema,
+    requestId: Type.String({ minLength: 1, maxLength: 80 }),
+    retryAfterSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
+    challenge: Type.Optional(ChallengeSchema),
+  },
+  { additionalProperties: false },
+);
+
+export type ProblemDetails = Static<typeof ProblemDetailsSchema>;
