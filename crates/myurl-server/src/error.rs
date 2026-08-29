@@ -127,6 +127,8 @@ impl<'de> Deserialize<'de> for Challenge {
 /// Errors raised by domain validation and decision logic.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum DomainError {
+    #[error("request is invalid")]
+    InvalidRequest,
     #[error("target URL is not allowed")]
     UrlNotAllowed,
     #[error("alias is invalid")]
@@ -339,7 +341,8 @@ impl AppError {
             | Self::Challenge(_)
             | Self::Runtime(_)
             | Self::Domain(
-                DomainError::UrlNotAllowed
+                DomainError::InvalidRequest
+                | DomainError::UrlNotAllowed
                 | DomainError::AliasInvalid
                 | DomainError::AliasUnavailable
                 | DomainError::RateLimited { .. }
@@ -352,6 +355,7 @@ impl AppError {
 impl DomainError {
     fn response_metadata(&self) -> ResponseMetadata {
         match self {
+            Self::InvalidRequest => ResponseMetadata::for_code(ErrorCode::InvalidRequest),
             Self::UrlNotAllowed => ResponseMetadata::for_code(ErrorCode::UrlNotAllowed),
             Self::AliasInvalid => ResponseMetadata::for_code(ErrorCode::AliasInvalid),
             Self::AliasUnavailable => ResponseMetadata::for_code(ErrorCode::AliasUnavailable),
@@ -523,6 +527,11 @@ mod tests {
     fn public_domain_cases_map_to_their_contract_codes() {
         let cases = [
             (AppError::invalid_request(), ErrorCode::InvalidRequest, 400),
+            (
+                AppError::from(DomainError::InvalidRequest),
+                ErrorCode::InvalidRequest,
+                400,
+            ),
             (
                 AppError::alias_unavailable(),
                 ErrorCode::AliasUnavailable,
