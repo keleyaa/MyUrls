@@ -9,6 +9,7 @@ pub mod ip;
 pub mod ports;
 pub mod redis;
 pub mod service;
+pub mod turnstile;
 
 pub use config::{AppConfig, ConfigError};
 pub use error::{
@@ -21,6 +22,7 @@ pub use service::{
     Clock, CreateLinkContext, CreateLinkRequest, ResolveLinkContext, ResolveLinkRequest,
     ShortCodeGenerator, ShortLinkService,
 };
+pub use turnstile::CloudflareTurnstileVerifier;
 
 /// Builds the temporary HTTP application used to verify service liveness.
 pub fn build_app() -> Router {
