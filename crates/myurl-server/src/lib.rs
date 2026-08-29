@@ -2,17 +2,9 @@ use std::{error::Error, fmt, net::SocketAddr};
 
 use axum::{Router, routing::get};
 
-/// Temporary process configuration until full environment parsing is added.
-#[derive(Clone, Debug)]
-pub struct AppConfig {
-    pub port: u16,
-}
+pub mod config;
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self { port: 3000 }
-    }
-}
+pub use config::{AppConfig, ConfigError};
 
 /// Opaque application error placeholder for the initial server scaffold.
 #[derive(Debug)]
