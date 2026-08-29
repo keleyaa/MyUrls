@@ -5,6 +5,7 @@ use axum::{Router, routing::get};
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod http;
 pub mod ip;
 pub mod ports;
 pub mod redis;

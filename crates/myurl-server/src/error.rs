@@ -352,6 +352,12 @@ impl AppError {
     }
 }
 
+impl From<axum::extract::rejection::JsonRejection> for AppError {
+    fn from(_: axum::extract::rejection::JsonRejection) -> Self {
+        Self::invalid_request()
+    }
+}
+
 impl DomainError {
     fn response_metadata(&self) -> ResponseMetadata {
         match self {
