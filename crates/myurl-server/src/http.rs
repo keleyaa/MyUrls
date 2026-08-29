@@ -1,6 +1,7 @@
 use std::{
     fmt,
     net::SocketAddr,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -11,12 +12,13 @@ use axum::{
         ConnectInfo, DefaultBodyLimit, Extension, MatchedPath, Path, State,
         rejection::JsonRejection,
     },
-    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
 };
 use serde::{Deserialize, Serialize};
+use tower_http::services::ServeDir;
 use uuid::Uuid;
 
 use crate::{
@@ -191,6 +193,24 @@ pub fn build_app(
     store: Arc<dyn LinkStore>,
     service: Arc<ShortLinkService>,
 ) -> Router {
+    build_router(config, store, service).fallback(fallback)
+}
+
+/// Builds the production router with static files as the non-API fallback.
+pub fn build_app_with_static(
+    config: AppConfig,
+    store: Arc<dyn LinkStore>,
+    service: Arc<ShortLinkService>,
+    web_root: PathBuf,
+) -> Router {
+    build_router(config, store, service).fallback_service(ServeDir::new(web_root))
+}
+
+fn build_router(
+    config: AppConfig,
+    store: Arc<dyn LinkStore>,
+    service: Arc<ShortLinkService>,
+) -> Router {
     let state = AppState {
         config: Arc::new(config),
         store,
@@ -199,10 +219,11 @@ pub fn build_app(
 
     Router::new()
         .route("/api/links", post(create_link))
+        .route("/api", any(api_fallback))
+        .route("/api/{*path}", any(api_fallback))
         .route("/health/live", get(liveness))
         .route("/health/ready", get(readiness))
-        .route("/:code", get(resolve_link).head(resolve_link_head))
-        .fallback(fallback)
+        .route("/{code}", get(resolve_link).head(resolve_link_head))
         .with_state(state)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn(security_headers_middleware))
@@ -317,16 +338,14 @@ async fn resolve(
     }
 }
 
-async fn fallback(
+async fn api_fallback(
     State(state): State<AppState>,
     Extension(request_id): Extension<RequestId>,
-    method: Method,
-    uri: Uri,
 ) -> Response {
-    if uri.path() == "/api" || uri.path().starts_with("/api/") {
-        return ProblemDetails::invalid_api_route(&state.config, request_id).into_response();
-    }
+    ProblemDetails::invalid_api_route(&state.config, request_id).into_response()
+}
 
+async fn fallback(method: Method) -> Response {
     browser_error(
         StatusCode::NOT_FOUND,
         NOT_FOUND_PAGE,
@@ -504,6 +523,7 @@ mod tests {
                 "test-secret-that-is-at-least-32-bytes-long",
             ),
             ("TURNSTILE_ENABLED", "false"),
+            ("TEST_STORE", "memory"),
         ])
         .unwrap()
     }
@@ -545,6 +565,30 @@ mod tests {
                 "expiresAt": "2026-11-27T12:00:00.000Z"
             })
         );
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn build_app_constructs_the_axum_routes() {
+        use std::sync::Arc;
+
+        use crate::{
+            LinkStore, ShortLinkService,
+            testing::{FakeTurnstile, MemoryLinkStore},
+        };
+
+        let config = test_config(PUBLIC_BASE_ORIGIN);
+        let store: Arc<dyn LinkStore> = Arc::new(
+            MemoryLinkStore::from_config(&config, Arc::new(time::OffsetDateTime::now_utc))
+                .expect("test configuration enables the memory store"),
+        );
+        let service = Arc::new(ShortLinkService::with_defaults(
+            config.clone(),
+            store.clone(),
+            Arc::new(FakeTurnstile::new()),
+        ));
+
+        let _app = super::build_app(config, store, service);
     }
 
     #[tokio::test]

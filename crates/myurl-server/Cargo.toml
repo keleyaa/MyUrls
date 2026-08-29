@@ -37,5 +37,5 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 wiremock = "0.6"
