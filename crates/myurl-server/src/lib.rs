@@ -17,6 +17,7 @@ pub use error::{
     AppError, Challenge, ChallengeError, ChallengeProvider, ChallengeValidationError, DomainError,
     ErrorCode, ResponseMetadata, RuntimeError, StoreError,
 };
+pub use http::build_app;
 pub use ports::{ChallengeVerifier, CreateCounts, CreateResult, LinkStore};
 pub use redis::RedisLinkStore;
 pub use service::{
@@ -25,19 +26,18 @@ pub use service::{
 };
 pub use turnstile::CloudflareTurnstileVerifier;
 
-/// Builds the temporary HTTP application used to verify service liveness.
-pub fn build_app() -> Router {
-    Router::new().route("/health/live", get(|| async { "ok" }))
-}
-
-/// Binds the configured listener and serves the temporary application.
+/// Binds the configured listener and serves the temporary liveness application.
+///
+/// Task 14 replaces this transitional path once it can construct the runtime
+/// store and challenge verifier before calling [`build_app`].
 pub async fn run(config: AppConfig) -> Result<(), AppError> {
     let address = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(AppError::runtime)?;
 
-    axum::serve(listener, build_app())
+    let liveness_app = Router::new().route("/health/live", get(|| async { "ok" }));
+    axum::serve(listener, liveness_app)
         .await
         .map_err(AppError::runtime)
 }

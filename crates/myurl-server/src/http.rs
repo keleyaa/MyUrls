@@ -1,16 +1,33 @@
-use std::fmt;
+use std::{
+    fmt,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
-    Json,
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    Json, Router,
+    extract::{
+        ConnectInfo, DefaultBodyLimit, Extension, MatchedPath, Path, State,
+        rejection::JsonRejection,
+    },
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Response},
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    config::AppConfig,
+    config::{AppConfig, MAX_BODY_BYTES},
     error::{AppError, Challenge, ErrorCode, ResponseMetadata},
+    ip::get_client_ip,
+    ports::LinkStore,
+    service::{
+        CreateLinkContext, CreateLinkRequest as ServiceCreateLinkRequest, ResolveLinkContext,
+        ResolveLinkRequest, ShortLinkService,
+    },
 };
 
 const PROBLEM_JSON_CONTENT_TYPE: &str = "application/problem+json";
@@ -70,6 +87,12 @@ pub struct ProblemDetails {
 impl ProblemDetails {
     pub fn from_app_error(error: &AppError, config: &AppConfig, request_id: RequestId) -> Self {
         Self::from_response_metadata(error.response_metadata(), config, request_id)
+    }
+
+    fn invalid_api_route(config: &AppConfig, request_id: RequestId) -> Self {
+        let mut problem = Self::from_app_error(&AppError::invalid_request(), config, request_id);
+        problem.status = StatusCode::NOT_FOUND.as_u16();
+        problem
     }
 
     fn from_response_metadata(
@@ -147,6 +170,312 @@ fn problem_title(code: ErrorCode) -> &'static str {
         ErrorCode::DependencyUnavailable => "Dependency unavailable",
         ErrorCode::CodeGenerationExhausted => "Code generation exhausted",
     }
+}
+
+#[derive(Clone)]
+struct AppState {
+    config: Arc<AppConfig>,
+    store: Arc<dyn LinkStore>,
+    service: Arc<ShortLinkService>,
+}
+
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com";
+const PERMISSIONS_POLICY: &str = "camera=(), microphone=(), geolocation=()";
+const NOT_FOUND_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Link not found</title></head><body><p>This short link is unavailable or has expired.</p></body></html>";
+const RATE_LIMITED_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Too many requests</title></head><body><p>Too many requests. Please try again later.</p></body></html>";
+const UNAVAILABLE_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Service unavailable</title></head><body><p>The service is temporarily unable to complete this request.</p></body></html>";
+
+/// Builds the HTTP router from already constructed service dependencies.
+pub fn build_app(
+    config: AppConfig,
+    store: Arc<dyn LinkStore>,
+    service: Arc<ShortLinkService>,
+) -> Router {
+    let state = AppState {
+        config: Arc::new(config),
+        store,
+        service,
+    };
+
+    Router::new()
+        .route("/api/links", post(create_link))
+        .route("/health/live", get(liveness))
+        .route("/health/ready", get(readiness))
+        .route("/:code", get(resolve_link).head(resolve_link_head))
+        .fallback(fallback)
+        .with_state(state)
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(middleware::from_fn(security_headers_middleware))
+        .layer(middleware::from_fn(request_id_middleware))
+}
+
+async fn create_link(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    request: Result<Json<CreateLinkRequest>, JsonRejection>,
+) -> Response {
+    if !is_json_content_type(&headers) || !has_valid_origin(&headers, &state.config) {
+        return api_error(AppError::invalid_request(), &state.config, request_id);
+    }
+    let Json(request) = match request {
+        Ok(request) => request,
+        Err(rejection) => return api_error(rejection.into(), &state.config, request_id),
+    };
+    let client_ip = client_ip(connect_info, &headers, &state.config);
+    let service_request = ServiceCreateLinkRequest {
+        url: request.url,
+        alias: request.alias,
+        challenge_token: request.challenge_token,
+    };
+
+    match state
+        .service
+        .create(&service_request, &CreateLinkContext { client_ip })
+        .await
+    {
+        Ok(result) => (
+            StatusCode::CREATED,
+            Json(CreateLinkResponse {
+                code: result.code,
+                short_url: result.short_url,
+                expires_at: result.expires_at,
+            }),
+        )
+            .into_response(),
+        Err(error) => api_error(error, &state.config, request_id),
+    }
+}
+
+async fn liveness() -> Json<HealthResponse> {
+    Json(HealthResponse { status: "ok" })
+}
+
+async fn readiness(State(state): State<AppState>) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(state.config.redis_timeout_ms),
+        state.store.ping(),
+    )
+    .await
+    {
+        Ok(Ok(())) => Json(HealthResponse { status: "ok" }).into_response(),
+        Ok(Err(_)) | Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(HealthResponse { status: "degraded" }),
+        )
+            .into_response(),
+    }
+}
+
+async fn resolve_link(
+    State(state): State<AppState>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+) -> Response {
+    resolve(state, connect_info, headers, code, false).await
+}
+
+async fn resolve_link_head(
+    State(state): State<AppState>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+) -> Response {
+    resolve(state, connect_info, headers, code, true).await
+}
+
+async fn resolve(
+    state: AppState,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    code: String,
+    head_only: bool,
+) -> Response {
+    let client_ip = client_ip(connect_info, &headers, &state.config);
+    let request = ResolveLinkRequest { code };
+    match state
+        .service
+        .resolve(&request, &ResolveLinkContext { client_ip })
+        .await
+    {
+        Ok(Some(target_url)) => redirect_response(&target_url),
+        Ok(None) => browser_error(StatusCode::NOT_FOUND, NOT_FOUND_PAGE, head_only, None),
+        Err(error) if error.code() == ErrorCode::RateLimited => browser_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            RATE_LIMITED_PAGE,
+            head_only,
+            error.retry_after_seconds(),
+        ),
+        Err(_) => browser_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            UNAVAILABLE_PAGE,
+            head_only,
+            None,
+        ),
+    }
+}
+
+async fn fallback(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    method: Method,
+    uri: Uri,
+) -> Response {
+    if uri.path() == "/api" || uri.path().starts_with("/api/") {
+        return ProblemDetails::invalid_api_route(&state.config, request_id).into_response();
+    }
+
+    browser_error(
+        StatusCode::NOT_FOUND,
+        NOT_FOUND_PAGE,
+        method == Method::HEAD,
+        None,
+    )
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+}
+
+fn api_error(error: AppError, config: &AppConfig, request_id: RequestId) -> Response {
+    ProblemDetails::from_app_error(&error, config, request_id).into_response()
+}
+
+fn client_ip(
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+    config: &AppConfig,
+) -> String {
+    let remote_address = connect_info.map(|Extension(peer)| peer.0.ip().to_string());
+    get_client_ip(
+        remote_address.as_deref(),
+        header_value(headers, "x-forwarded-for"),
+        header_value(headers, "forwarded"),
+        &config.trust_proxy_cidrs,
+    )
+}
+
+fn header_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+    header_value(headers, header::CONTENT_TYPE.as_str()).is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
+    })
+}
+
+fn has_valid_origin(headers: &HeaderMap, config: &AppConfig) -> bool {
+    headers
+        .get(header::ORIGIN)
+        .is_none_or(|origin| origin.to_str().ok() == Some(config.public_base_origin.as_str()))
+}
+
+fn redirect_response(target_url: &str) -> Response {
+    let Ok(location) = HeaderValue::from_str(target_url) else {
+        return browser_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            UNAVAILABLE_PAGE,
+            false,
+            None,
+        );
+    };
+    let mut response = StatusCode::FOUND.into_response();
+    response.headers_mut().insert(header::LOCATION, location);
+    response
+}
+
+fn browser_error(
+    status: StatusCode,
+    page: &'static str,
+    head_only: bool,
+    retry_after_seconds: Option<u64>,
+) -> Response {
+    let body = if head_only { "" } else { page };
+    let mut response = (status, Html(body)).into_response();
+    if let Some(seconds) = retry_after_seconds {
+        let value = HeaderValue::from_str(&seconds.to_string())
+            .expect("retry-after seconds are a valid HTTP header value");
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
+}
+
+async fn request_id_middleware(mut request: axum::extract::Request, next: Next) -> Response {
+    let request_id = request_id_from_headers(request.headers());
+    let route = request.extensions().get::<MatchedPath>().map_or_else(
+        || "unmatched".to_owned(),
+        |matched_path| matched_path.as_str().to_owned(),
+    );
+    request.extensions_mut().insert(request_id.clone());
+    let started_at = Instant::now();
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        REQUEST_ID_HEADER,
+        HeaderValue::from_str(request_id.as_str())
+            .expect("validated request IDs are valid HTTP header values"),
+    );
+    tracing::info!(
+        request_id = %request_id,
+        route = %route,
+        status = response.status().as_u16(),
+        outcome = outcome_class(response.status()),
+        dependency = dependency_class(response.status()),
+        duration_ms = started_at.elapsed().as_secs_f64() * 1_000.0,
+        "request complete"
+    );
+    response
+}
+
+fn outcome_class(status: StatusCode) -> &'static str {
+    match status {
+        status if status.is_success() => "success",
+        status if status.is_redirection() => "redirect",
+        status if status.is_client_error() => "rejected",
+        _ => "failed",
+    }
+}
+
+fn dependency_class(status: StatusCode) -> &'static str {
+    if status == StatusCode::SERVICE_UNAVAILABLE {
+        "unavailable"
+    } else {
+        "none"
+    }
+}
+
+async fn security_headers_middleware(request: axum::extract::Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(
+        "permissions-policy",
+        HeaderValue::from_static(PERMISSIONS_POLICY),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
 }
 
 #[cfg(test)]
