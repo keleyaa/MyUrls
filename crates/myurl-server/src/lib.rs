@@ -32,4 +32,5 @@ pub async fn run(config: AppConfig) -> Result<(), AppError> {
         .map_err(AppError::runtime)
 }
 
-pub mod testing {}
+#[cfg(feature = "test-support")]
+pub mod testing;
