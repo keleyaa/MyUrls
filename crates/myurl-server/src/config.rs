@@ -2,6 +2,8 @@ use std::{collections::BTreeMap, env, str::FromStr};
 
 use ipnet::IpNet;
 use thiserror::Error;
+
+use crate::ip::parse_cidr;
 use url::Url;
 
 pub const LINK_TTL_SECONDS: u64 = 7_776_000;
@@ -439,9 +441,7 @@ fn parse_trust_proxy_cidrs(
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .map(|part| {
-            let cidr = part
-                .parse::<IpNet>()
-                .map_err(|_| ConfigError::InvalidTrustProxyCidrs)?;
+            let cidr = parse_cidr(part).ok_or(ConfigError::InvalidTrustProxyCidrs)?;
             if node_env == NodeEnvironment::Production && cidr.prefix_len() == 0 {
                 return Err(ConfigError::InvalidTrustProxyCidrs);
             }
@@ -463,6 +463,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use ipnet::IpNet;
+
+    use crate::ip::get_client_ip;
 
     use super::{AppConfig, ConfigError, Limits, NodeEnvironment, TurnstileMode};
 
@@ -654,6 +656,28 @@ mod tests {
             set(&mut env, "REDIS_URL", value);
             assert_error(&env, ConfigError::InvalidRedisUrl);
         }
+    }
+
+    #[test]
+    fn normalizes_mapped_ipv6_proxy_cidrs_for_client_ip_trust() {
+        let mut env = base_env();
+        set(&mut env, "TRUST_PROXY_CIDRS", "::ffff:10.0.0.0/104");
+
+        let config = AppConfig::from_env(&env).unwrap();
+
+        assert_eq!(
+            config.trust_proxy_cidrs,
+            vec!["10.0.0.0/8".parse::<IpNet>().unwrap()]
+        );
+        assert_eq!(
+            get_client_ip(
+                Some("10.0.0.8"),
+                Some("198.51.100.4"),
+                None,
+                &config.trust_proxy_cidrs,
+            ),
+            "198.51.100.4"
+        );
     }
 
     #[test]
