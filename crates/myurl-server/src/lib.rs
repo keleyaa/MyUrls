@@ -7,6 +7,7 @@ pub mod domain;
 pub mod error;
 pub mod ip;
 pub mod ports;
+pub mod redis;
 pub mod service;
 
 pub use config::{AppConfig, ConfigError};
@@ -15,6 +16,7 @@ pub use error::{
     ErrorCode, ResponseMetadata, RuntimeError, StoreError,
 };
 pub use ports::{ChallengeVerifier, CreateCounts, CreateResult, LinkStore};
+pub use redis::RedisLinkStore;
 pub use service::{
     Clock, CreateLinkContext, CreateLinkRequest, ResolveLinkContext, ResolveLinkRequest,
     ShortCodeGenerator, ShortLinkService,

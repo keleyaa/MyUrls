@@ -40,22 +40,47 @@ const composeArgs = [
   '-p',
   project,
 ];
-const env = { ...process.env, REDIS_VERIFY_PORT: String(port) };
+const childEnv = { ...process.env, REDIS_VERIFY_PORT: String(port) };
+delete childEnv.REDIS_PASSWORD;
+delete childEnv.MYURL_REDIS_INTEGRATION;
+
+let mainError;
 
 try {
-  await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'], env);
   await run(
-    'corepack',
-    ['pnpm', 'exec', 'vitest', 'run', '--config', 'vitest.integration.config.ts'],
+    'docker',
+    ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'],
+    childEnv,
+  );
+  await run(
+    'cargo',
+    ['test', '-p', 'myurl-server', '--all-features', '--test', 'redis', '--', '--ignored'],
     {
-      ...env,
+      ...childEnv,
+      MYURL_REDIS_INTEGRATION: '1',
       REDIS_URL: `redis://127.0.0.1:${port}/15`,
     },
   );
+} catch (error) {
+  mainError = error;
 } finally {
-  await run(
-    'docker',
-    ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
-    env,
-  ).catch(() => undefined);
+  try {
+    await run(
+      'docker',
+      ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
+      childEnv,
+    );
+  } catch (teardownError) {
+    if (mainError) {
+      throw new AggregateError(
+        [mainError, teardownError],
+        'Integration test and Docker Compose teardown both failed',
+      );
+    }
+    throw teardownError;
+  }
+}
+
+if (mainError) {
+  throw mainError;
 }
