@@ -16,7 +16,7 @@ function run(command, args) {
 }
 
 await run('docker', ['compose', 'build', '--quiet', 'app']);
-const imageId = 'myurl-v2-app:local';
+const imageId = 'myurl:local';
 
 if (await commandExists('trivy')) {
   await run('trivy', [

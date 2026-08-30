@@ -7,11 +7,11 @@ import path from 'node:path';
 const image =
   'redis:8.10.0@sha256:c29e49ab2f85760a3827b53882e6dd9f5c6c3f0bb7d724e07bb31cbf275a5236';
 const stamp = `${process.pid}-${Date.now()}`;
-const sourceContainer = `myurl-v2-backup-source-${stamp}`;
-const restoredContainer = `myurl-v2-backup-restored-${stamp}`;
-const sourceVolume = `myurl-v2-backup-source-${stamp}`;
-const restoredVolume = `myurl-v2-backup-restored-${stamp}`;
-const workDir = await mkdtemp(path.join(tmpdir(), 'myurl-v2-backup-'));
+const sourceContainer = `myurl-backup-source-${stamp}`;
+const restoredContainer = `myurl-backup-restored-${stamp}`;
+const sourceVolume = `myurl-backup-source-${stamp}`;
+const restoredVolume = `myurl-backup-restored-${stamp}`;
+const workDir = await mkdtemp(path.join(tmpdir(), 'myurl-backup-'));
 const backupFile = path.join(workDir, 'redis-test.rdb');
 
 function exec(command, args, options = {}) {
