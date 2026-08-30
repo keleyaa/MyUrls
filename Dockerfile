@@ -8,7 +8,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/myurl-server/Cargo.toml crates/myurl-server/Cargo.toml
 RUN cargo fetch --locked
 COPY crates crates
-RUN cargo build --release --locked -p myurl-server
+# Keep the test-only adapters available for isolated Docker integration tests.
+# Production configuration still rejects TURNSTILE_MODE=test and TEST_STORE.
+RUN cargo build --release --locked -p myurl-server --features test-support
 
 FROM ${NODE_IMAGE} AS web-dependencies
 WORKDIR /app
