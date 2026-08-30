@@ -202,7 +202,7 @@
         <span>my</span>
         <span>url</span>
       </h1>
-      <p class="brand-statement">把冗长的地址，<br />折进一个清晰的入口。</p>
+      <p class="brand-statement">把长链接，<br />收成一个清晰入口。</p>
 
       <dl class="brand-rules">
         <div>
@@ -237,7 +237,7 @@
       <header class="workspace-header">
         <div>
           <p class="workspace-index">短链接生成器</p>
-          <h2>把链接留给<br />需要的人。</h2>
+          <h2>输入长链接，<br />生成短入口。</h2>
         </div>
         <span class="workspace-expiry">90 DAYS</span>
       </header>
