@@ -30,7 +30,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      'corepack pnpm --filter @myurl/contracts build && corepack pnpm --filter @myurl/web build && WEB_ROOT=apps/web/dist cargo run -p myurl-server --features test-support',
+      'node_modules/.bin/tsc -p packages/contracts/tsconfig.json && (cd apps/web && node_modules/.bin/vite build) && WEB_ROOT=apps/web/dist cargo run -p myurl-server --features test-support',
     url: `http://127.0.0.1:${port}/health/live`,
     reuseExistingServer: false,
     timeout: 120000,
