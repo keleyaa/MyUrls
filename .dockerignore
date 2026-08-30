@@ -14,3 +14,6 @@ logs
 .env
 .worktrees
 .claude
+
+target
+artifacts

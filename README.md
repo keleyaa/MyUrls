@@ -1,7 +1,7 @@
-# MyURL v2
+# MyURL
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="MyURL v2：将 HTTP(S) URL 转为 90 天有效的短入口">
+  <img src="./assets/readme/hero.svg" width="100%" alt="MyURL：将 HTTP(S) URL 转为 90 天有效的短入口">
 </p>
 
 一个自托管的匿名短链服务。提交一个 URL，得到固定 90 天有效的短链接；浏览器允许时，结果会自动复制。
@@ -9,7 +9,7 @@
 ## 创建一条短链
 
 ```sh
-curl --fail-with-body http://127.0.0.1:3000/api/v1/links \
+curl --fail-with-body http://127.0.0.1:3000/api/links \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com/docs","alias":"docs"}'
 ```
@@ -31,7 +31,7 @@ curl --fail-with-body http://127.0.0.1:3000/api/v1/links \
 - 只接受绝对 `http://` 或 `https://` URL；服务端不会抓取目标、解析 DNS 或生成页面预览。
 - 不需要账号，不提供访问统计，也不记录原始 IP。限流使用 HMAC-SHA-256 指纹。
 - 短码和别名通过 Redis `SET NX EX` 原子占位，固定保存 90 天；解析请求按 IP 限流。
-- v2 不提供后台、二维码、密码保护、一次性链接或旧版本数据迁移。
+- 不提供后台、二维码、密码保护、一次性链接或旧数据迁移。
 
 ## 运行
 
@@ -47,7 +47,7 @@ Compose 只包含 `app` 与 `redis`。应用默认只绑定 `127.0.0.1:${APP_POR
 ## 接口
 
 ```text
-POST /api/v1/links  -> 201，返回 code、shortUrl、expiresAt
+POST /api/links     -> 201，返回 code、shortUrl、expiresAt
 GET  /:code         -> 302，Location 指向原始目标；高频探测可能返回 429
 HEAD /:code         -> 302，不返回响应体；高频探测可能返回 429
 GET  /health/live   -> 200，不访问 Redis
@@ -61,11 +61,13 @@ GET  /health/ready  -> 200 或 503，执行 Redis PING
 
 ### 本地开发
 
-需要 Node.js `24.14.1` 与 Corepack。完整验证另需 Docker Compose v2、Chromium、WebKit 和 Trivy `0.74.0`。
+需要 Rust `1.85`、Node.js `24.14.1` 与 Corepack。完整验证另需 Docker Compose v2、Chromium、WebKit 和 Trivy `0.74.0`。
 
 ```sh
 corepack pnpm install --frozen-lockfile
-corepack pnpm build
+corepack pnpm --filter @myurl/contracts build
+corepack pnpm --filter @myurl/web build
+cargo build -p myurl-server
 ```
 
 启动内存存储的本地 API：
@@ -76,10 +78,10 @@ PUBLIC_BASE_URL=http://127.0.0.1:3000 \
 IP_HASH_SECRET=local-development-secret-that-is-at-least-32-bytes \
 TURNSTILE_ENABLED=false \
 TEST_STORE=memory \
-corepack pnpm dev:server
+cargo run -p myurl-server --features test-support
 ```
 
-另开一个终端执行 `corepack pnpm dev:web`，然后打开 <http://127.0.0.1:5173>。
+另开一个终端执行 `corepack pnpm --filter @myurl/web dev`，然后打开 <http://127.0.0.1:5173>。
 
 ### 验证
 
@@ -91,10 +93,10 @@ corepack pnpm verify
 
 ### 镜像发布
 
-在 GitHub Actions 中运行 `Publish GHCR image`，输入稳定版本号，例如 `v2.0.0`。工作流会先通过完整 CI，再发布多架构镜像、创建同名 annotated Git tag，并同时更新版本标签、提交 SHA 标签和 `latest`。
+在 GitHub Actions 中运行 `Publish GHCR image`，输入稳定版本号。工作流会先通过完整 CI，再发布多架构镜像、创建同名 annotated Git tag，并同时更新版本标签、提交 SHA 标签和 `latest`。
 
 ```text
-ghcr.io/keleyaa/myurls:v2.0.0
+ghcr.io/keleyaa/myurls:<release>
 ghcr.io/keleyaa/myurls:latest
 ```
 
