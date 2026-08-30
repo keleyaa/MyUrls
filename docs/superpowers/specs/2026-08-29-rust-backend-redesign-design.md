@@ -127,17 +127,17 @@ Content-Type: application/json
 
 第一阶段错误码与 HTTP 映射如下：
 
-| 错误码 | HTTP 状态 | 含义 |
-| --- | ---: | --- |
-| `invalid_request` | 400 | JSON、Content-Type、字段或请求大小不合法 |
-| `challenge_required` | 403 | 需要先完成人机验证 |
-| `challenge_invalid` | 403 | 人机验证未通过 |
-| `alias_unavailable` | 409 | 别名已占用或为保留名称 |
-| `url_not_allowed` | 422 | 目标地址不符合策略 |
-| `alias_invalid` | 422 | 别名格式不符合策略 |
-| `rate_limited` | 429 | 风险或计数器达到阻断阈值 |
-| `dependency_unavailable` | 503 | Redis 或挑战验证依赖不可用 |
-| `code_generation_exhausted` | 503 | 自动短码在限定重试次数内无法占位 |
+| 错误码                      | HTTP 状态 | 含义                                     |
+| --------------------------- | --------: | ---------------------------------------- |
+| `invalid_request`           |       400 | JSON、Content-Type、字段或请求大小不合法 |
+| `challenge_required`        |       403 | 需要先完成人机验证                       |
+| `challenge_invalid`         |       403 | 人机验证未通过                           |
+| `alias_unavailable`         |       409 | 别名已占用或为保留名称                   |
+| `url_not_allowed`           |       422 | 目标地址不符合策略                       |
+| `alias_invalid`             |       422 | 别名格式不符合策略                       |
+| `rate_limited`              |       429 | 风险或计数器达到阻断阈值                 |
+| `dependency_unavailable`    |       503 | Redis 或挑战验证依赖不可用               |
+| `code_generation_exhausted` |       503 | 自动短码在限定重试次数内无法占位         |
 
 ### 解析响应
 
