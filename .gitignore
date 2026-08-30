@@ -26,3 +26,7 @@ ops/backups/
 # 本机与 Claude 临时工作区
 .DS_Store
 .claude/
+
+# 内部设计与实施计划
+CONTEXT.md
+docs/superpowers/
