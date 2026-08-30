@@ -45,13 +45,10 @@ delete childEnv.REDIS_PASSWORD;
 delete childEnv.MYURL_REDIS_INTEGRATION;
 
 let mainError;
+let teardownError;
 
 try {
-  await run(
-    'docker',
-    ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'],
-    childEnv,
-  );
+  await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'], childEnv);
   await run(
     'cargo',
     ['test', '-p', 'myurl-server', '--all-features', '--test', 'redis', '--', '--ignored'],
@@ -63,24 +60,24 @@ try {
   );
 } catch (error) {
   mainError = error;
-} finally {
-  try {
-    await run(
-      'docker',
-      ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
-      childEnv,
-    );
-  } catch (teardownError) {
-    if (mainError) {
-      throw new AggregateError(
-        [mainError, teardownError],
-        'Integration test and Docker Compose teardown both failed',
-      );
-    }
-    throw teardownError;
-  }
 }
 
-if (mainError) {
-  throw mainError;
+try {
+  await run(
+    'docker',
+    ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
+    childEnv,
+  );
+} catch (error) {
+  teardownError = error;
 }
+
+if (mainError && teardownError) {
+  throw new AggregateError(
+    [mainError, teardownError],
+    'Integration test and Docker Compose teardown both failed',
+    { cause: mainError },
+  );
+}
+if (mainError) throw mainError;
+if (teardownError) throw new Error('Docker Compose teardown failed', { cause: teardownError });
