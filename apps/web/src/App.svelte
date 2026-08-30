@@ -1,17 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { AlertTriangle, CircleCheck, LoaderCircle } from '@lucide/svelte';
-  import type { CreateLinkInput, ErrorCode } from '@myurl/contracts';
-
   import BrandHeader from './components/BrandHeader.svelte';
   import LinkComposer from './components/LinkComposer.svelte';
   import LinkResult from './components/LinkResult.svelte';
   import ProjectFooter from './components/ProjectFooter.svelte';
   import TurnstileChallenge from './components/TurnstileChallenge.svelte';
-  import { ApiError, checkReady, createLink } from './lib/api.js';
-  import { initialPageState, reducePageState, type PageState } from './lib/page-state.js';
+  import {
+    ApiError,
+    checkReady,
+    createLink,
+    type CreateLinkInput,
+    type ErrorCode,
+  } from './lib/api.js';
+  import type { PageState } from './lib/page-state.js';
 
-  let state: PageState = initialPageState;
+  let state: PageState = { kind: 'idle' };
   let url = '';
   let alias = '';
   let aliasOpen = false;
@@ -87,16 +91,16 @@
       return;
     }
     if (url.trim() === '') {
-      state = reducePageState(state, {
-        type: 'validation-error',
+      state = {
+        kind: 'validation-error',
         code: 'url_not_allowed',
         message: messages.url_not_allowed,
-      });
+      };
       urlInput?.focus();
       return;
     }
 
-    state = reducePageState(state, { type: 'submit' });
+    state = { kind: 'submitting' };
     const input: CreateLinkInput = alias === '' ? { url } : { url, alias };
     if (challengeToken !== undefined) {
       input.challengeToken = challengeToken;
@@ -104,45 +108,41 @@
     try {
       const result = await createLink(input);
       const copied = await copy(result.shortUrl);
-      state = reducePageState(state, {
-        type: copied ? 'success-copied' : 'success-copy-fallback',
-        result,
-      });
+      state = { kind: copied ? 'success-copied' : 'success-copy-fallback', result };
     } catch (error: unknown) {
       if (!(error instanceof ApiError)) {
-        state = reducePageState(state, {
-          type: 'dependency-error',
+        state = {
+          kind: 'dependency-error',
           code: 'dependency_unavailable',
           message: messages.dependency_unavailable,
-        });
+        };
         return;
       }
       if (error.code === 'challenge_required' && error.challenge !== undefined) {
-        state = reducePageState(state, {
-          type: 'challenge',
+        state = {
+          kind: 'challenge',
           challenge: error.challenge,
           message: messages.challenge_required,
-        });
+        };
         return;
       }
       if (error.code === 'challenge_invalid' && error.challenge !== undefined) {
-        state = reducePageState(state, {
-          type: 'challenge-error',
+        state = {
+          kind: 'challenge-error',
           challenge: error.challenge,
           message: messages.challenge_invalid,
-        });
+        };
         return;
       }
       if (error.code === 'rate_limited') {
-        const event: Parameters<typeof reducePageState>[1] = {
-          type: 'rate-limited',
+        state = {
+          kind: 'rate-limited',
           code: error.code,
           message: messages.rate_limited,
+          ...(error.retryAfterSeconds === undefined
+            ? {}
+            : { retryAfterSeconds: error.retryAfterSeconds }),
         };
-        if (error.retryAfterSeconds !== undefined) {
-          event.retryAfterSeconds = error.retryAfterSeconds;
-        }
-        state = reducePageState(state, event);
         return;
       }
       const validationCodes: ErrorCode[] = [
@@ -152,18 +152,18 @@
         'alias_unavailable',
       ];
       if (validationCodes.includes(error.code)) {
-        state = reducePageState(state, {
-          type: 'validation-error',
+        state = {
+          kind: 'validation-error',
           code: error.code,
           message: messages[error.code],
-        });
+        };
         return;
       }
-      state = reducePageState(state, {
-        type: 'dependency-error',
+      state = {
+        kind: 'dependency-error',
         code: error.code,
         message: messages[error.code],
-      });
+      };
     }
   }
 
@@ -173,17 +173,17 @@
     }
     const copied = await copy(state.result.shortUrl);
     if (copied) {
-      state = reducePageState(state, { type: 'success-copied', result: state.result });
+      state = { kind: 'success-copied', result: state.result };
     }
   }
 
   function challengeError(): void {
     if (state.kind === 'challenge' || state.kind === 'challenge-error') {
-      state = reducePageState(state, {
-        type: 'challenge-error',
+      state = {
+        kind: 'challenge-error',
         challenge: state.challenge,
         message: '验证服务暂时不可用，请稍后重试。',
-      });
+      };
     }
   }
 </script>

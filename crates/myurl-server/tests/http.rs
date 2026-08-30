@@ -9,7 +9,8 @@ use axum::{
     response::Response,
 };
 use myurl_server::{
-    AppConfig, LinkStore, ShortLinkService, build_app, build_app_with_static,
+    AppConfig, ChallengeError, ChallengeVerifier, LinkStore, ShortLinkService, build_app,
+    build_app_with_static,
     ip::fingerprint_ip,
     testing::{FakeTurnstile, FakeTurnstileOutcome, MemoryLinkStore, StoreFailures},
 };
@@ -20,6 +21,16 @@ use uuid::Uuid;
 
 const PUBLIC_BASE_URL: &str = "http://localhost:3000";
 const IP_HASH_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+struct SlowChallengeVerifier;
+
+#[async_trait::async_trait]
+impl ChallengeVerifier for SlowChallengeVerifier {
+    async fn verify(&self, _token: &str) -> Result<bool, ChallengeError> {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(true)
+    }
+}
 
 fn test_config() -> AppConfig {
     test_config_with(&[])
@@ -47,13 +58,20 @@ fn test_config_with(overrides: &[(&str, &str)]) -> AppConfig {
 }
 
 fn test_app(config: AppConfig, verifier: FakeTurnstile) -> (Router, MemoryLinkStore) {
+    test_app_with_verifier(config, Arc::new(verifier))
+}
+
+fn test_app_with_verifier(
+    config: AppConfig,
+    verifier: Arc<dyn ChallengeVerifier>,
+) -> (Router, MemoryLinkStore) {
     let memory_store = MemoryLinkStore::from_config(&config, Arc::new(OffsetDateTime::now_utc))
         .expect("test configuration enables the memory store");
     let store: Arc<dyn LinkStore> = Arc::new(memory_store.clone());
     let service = Arc::new(ShortLinkService::with_defaults(
         config.clone(),
         Arc::clone(&store),
-        Arc::new(verifier),
+        verifier,
     ));
     (build_app(config, store, service), memory_store)
 }
@@ -163,6 +181,28 @@ async fn creates_links_with_configured_origin_while_ignoring_host() {
             .as_str()
             .is_some_and(|date| date.ends_with('Z'))
     );
+    close(&store).await;
+}
+
+#[tokio::test]
+async fn request_timeout_limits_slow_challenge_verification() {
+    let config = test_config_with(&[
+        ("TURNSTILE_ENABLED", "true"),
+        ("TURNSTILE_SITE_KEY", "test-site-key"),
+        ("TURNSTILE_SECRET_KEY", "test-secret-key"),
+        ("TEST_FORCE_CHALLENGE", "true"),
+        ("REQUEST_TIMEOUT_MS", "10"),
+    ]);
+    let (app, store) = test_app_with_verifier(config, Arc::new(SlowChallengeVerifier));
+    let response = call(
+        &app,
+        create_request(Body::from(
+            r#"{"url":"https://example.com/slow","challengeToken":"test-token"}"#,
+        )),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
     close(&store).await;
 }
 
@@ -548,6 +588,27 @@ async fn static_fallback_preserves_problem_details_for_unknown_api_routes() {
         )
         .await;
         assert_eq!(asset_response.status(), StatusCode::OK, "{path} is served");
+        assert!(
+            asset_response
+                .headers()
+                .contains_key(header::CONTENT_SECURITY_POLICY),
+            "{path} has a content security policy"
+        );
+        assert_eq!(
+            asset_response.headers().get(header::X_FRAME_OPTIONS),
+            Some(&header::HeaderValue::from_static("DENY")),
+            "{path} denies framing"
+        );
+        let expected_cache_control = if path.starts_with("/assets/") {
+            "public, max-age=31536000, immutable"
+        } else {
+            "no-store"
+        };
+        assert_eq!(
+            asset_response.headers().get(header::CACHE_CONTROL),
+            Some(&header::HeaderValue::from_static(expected_cache_control)),
+            "{path} has the expected cache policy"
+        );
         let asset_body = to_bytes(asset_response.into_body(), usize::MAX)
             .await
             .expect("asset response body is readable");

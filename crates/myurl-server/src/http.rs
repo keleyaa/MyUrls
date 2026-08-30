@@ -34,6 +34,7 @@ use crate::{
 
 const PROBLEM_JSON_CONTENT_TYPE: &str = "application/problem+json";
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const IMMUTABLE_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 /// JSON body accepted by the create-link endpoint.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -193,7 +194,11 @@ pub fn build_app(
     store: Arc<dyn LinkStore>,
     service: Arc<ShortLinkService>,
 ) -> Router {
-    build_router(config, store, service).fallback(fallback)
+    let request_timeout = Duration::from_millis(config.request_timeout_ms);
+    with_middleware(
+        build_router(config, store, service).fallback(fallback),
+        request_timeout,
+    )
 }
 
 /// Builds the production router with static files as the non-API fallback.
@@ -203,16 +208,20 @@ pub fn build_app_with_static(
     service: Arc<ShortLinkService>,
     web_root: PathBuf,
 ) -> Router {
-    build_router(config, store, service)
-        .route_service(
-            "/robots.txt",
-            get_service(ServeFile::new(web_root.join("robots.txt"))),
-        )
-        .route_service(
-            "/sitemap.xml",
-            get_service(ServeFile::new(web_root.join("sitemap.xml"))),
-        )
-        .fallback_service(ServeDir::new(web_root))
+    let request_timeout = Duration::from_millis(config.request_timeout_ms);
+    with_middleware(
+        build_router(config, store, service)
+            .route_service(
+                "/robots.txt",
+                get_service(ServeFile::new(web_root.join("robots.txt"))),
+            )
+            .route_service(
+                "/sitemap.xml",
+                get_service(ServeFile::new(web_root.join("sitemap.xml"))),
+            )
+            .fallback_service(ServeDir::new(web_root)),
+        request_timeout,
+    )
 }
 
 fn build_router(
@@ -234,7 +243,15 @@ fn build_router(
         .route("/health/ready", get(readiness))
         .route("/{code}", get(resolve_link).head(resolve_link_head))
         .with_state(state)
+}
+
+fn with_middleware(router: Router, request_timeout: Duration) -> Router {
+    router
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(middleware::from_fn_with_state(
+            request_timeout,
+            request_timeout_middleware,
+        ))
         .layer(middleware::from_fn(security_headers_middleware))
         .layer(middleware::from_fn(request_id_middleware))
 }
@@ -478,10 +495,29 @@ fn dependency_class(status: StatusCode) -> &'static str {
     }
 }
 
+async fn request_timeout_middleware(
+    State(request_timeout): State<Duration>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    match tokio::time::timeout(request_timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => StatusCode::REQUEST_TIMEOUT.into_response(),
+    }
+}
+
 async fn security_headers_middleware(request: axum::extract::Request, next: Next) -> Response {
+    let cache_control = if request.uri().path().starts_with("/assets/") {
+        IMMUTABLE_ASSET_CACHE_CONTROL
+    } else {
+        "no-store"
+    };
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(CONTENT_SECURITY_POLICY),

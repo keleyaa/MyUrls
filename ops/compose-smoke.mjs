@@ -83,10 +83,15 @@ try {
     throw new Error('redirect smoke check failed');
   }
 
-  await run('docker', ['compose', ...composeArgs, 'restart', 'redis', 'app'], env);
-  await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait'], env);
-  const afterRestart = await fetch(created.shortUrl, { redirect: 'manual' });
-  if (afterRestart.status !== 302) throw new Error('persistent redirect check failed');
+  await run('docker', ['compose', ...composeArgs, 'restart', 'redis'], env);
+  await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'], env);
+  let afterRedisRestart = await fetch(created.shortUrl, { redirect: 'manual' });
+  if (afterRedisRestart.status !== 302) {
+    afterRedisRestart = await fetch(created.shortUrl, { redirect: 'manual' });
+  }
+  if (afterRedisRestart.status !== 302) {
+    throw new Error('app did not recover after the Redis-only restart');
+  }
 
   const redisContainer = (
     await runCapture('docker', ['compose', ...composeArgs, 'ps', '-q', 'redis'], env)

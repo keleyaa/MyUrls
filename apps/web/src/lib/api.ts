@@ -1,11 +1,40 @@
-import { isCreateLinkResponse } from '@myurl/contracts';
-import type {
-  Challenge,
-  CreateLinkInput,
-  CreateLinkResponse,
-  ErrorCode,
-  ProblemDetails,
-} from '@myurl/contracts';
+export type ErrorCode =
+  | 'invalid_request'
+  | 'challenge_required'
+  | 'challenge_invalid'
+  | 'alias_unavailable'
+  | 'url_not_allowed'
+  | 'alias_invalid'
+  | 'rate_limited'
+  | 'dependency_unavailable'
+  | 'code_generation_exhausted';
+
+export type CreateLinkInput = {
+  url: string;
+  alias?: string;
+  challengeToken?: string;
+};
+
+export type CreateLinkResponse = {
+  code: string;
+  shortUrl: string;
+  expiresAt: string;
+};
+
+export type Challenge = {
+  provider: 'turnstile';
+  siteKey: string;
+};
+
+type ProblemDetails = {
+  type: string;
+  title: string;
+  status: number;
+  code: ErrorCode;
+  requestId: string;
+  retryAfterSeconds?: number;
+  challenge?: Challenge;
+};
 
 const errorCodes = new Set<ErrorCode>([
   'invalid_request',
@@ -45,6 +74,23 @@ export class ApiError extends Error {
       this.retryAfterSeconds = problem.retryAfterSeconds;
     }
   }
+}
+
+function isCreateLinkResponse(value: unknown): value is CreateLinkResponse {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.code === 'string' &&
+    candidate.code.length >= 4 &&
+    candidate.code.length <= 32 &&
+    typeof candidate.shortUrl === 'string' &&
+    candidate.shortUrl.length > 0 &&
+    typeof candidate.expiresAt === 'string' &&
+    candidate.expiresAt.length > 0
+  );
 }
 
 function isChallenge(value: unknown): value is Challenge {

@@ -18,13 +18,11 @@ ENV COREPACK_HOME=/tmp/corepack
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
-COPY packages/contracts/package.json packages/contracts/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM web-dependencies AS web-builder
 COPY apps/web apps/web
-COPY packages/contracts packages/contracts
-RUN pnpm --filter @myurl/contracts build && pnpm --filter @myurl/web build
+RUN pnpm --filter @myurl/web build
 
 FROM ${DEBIAN_IMAGE} AS runtime
 ENV WEB_ROOT=/app/web

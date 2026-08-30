@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use redis::{AsyncConnectionConfig, FromRedisValue, aio::MultiplexedConnection};
@@ -35,9 +38,16 @@ const CREATE_DAILY_TTL_SECONDS: u64 = 172_800;
 const RESOLVE_TTL_SECONDS: u64 = 10;
 const RISK_TTL_SECONDS: u64 = 600;
 
-/// A single, non-reconnecting Redis connection used by the production link store.
+struct ConnectionSlot {
+    connection: Option<MultiplexedConnection>,
+    generation: u64,
+}
+
+/// A reconnecting Redis adapter used by the production link store.
 pub struct RedisLinkStore {
-    connection: Mutex<Option<MultiplexedConnection>>,
+    client: redis::Client,
+    connection: Mutex<ConnectionSlot>,
+    closed: AtomicBool,
     timeout: Duration,
 }
 
@@ -45,42 +55,81 @@ impl RedisLinkStore {
     pub async fn connect(redis_url: &str, timeout_ms: u64) -> Result<Self, StoreError> {
         let operation_timeout = Duration::from_millis(timeout_ms);
         let client = redis::Client::open(redis_url).map_err(|_| StoreError::unavailable())?;
+        let connection = Self::open_connection(&client, operation_timeout).await?;
+
+        Ok(Self {
+            client,
+            connection: Mutex::new(ConnectionSlot {
+                connection: Some(connection),
+                generation: 0,
+            }),
+            closed: AtomicBool::new(false),
+            timeout: operation_timeout,
+        })
+    }
+
+    async fn open_connection(
+        client: &redis::Client,
+        operation_timeout: Duration,
+    ) -> Result<MultiplexedConnection, StoreError> {
         let connection_config = AsyncConnectionConfig::new()
             .set_connection_timeout(operation_timeout)
             .set_response_timeout(operation_timeout);
-        let connection = timeout(
+        timeout(
             operation_timeout,
             client.get_multiplexed_async_connection_with_config(&connection_config),
         )
         .await
         .map_err(|_| StoreError::unavailable())?
-        .map_err(|_| StoreError::unavailable())?;
+        .map_err(|_| StoreError::unavailable())
+    }
 
-        Ok(Self {
-            connection: Mutex::new(Some(connection)),
-            timeout: operation_timeout,
-        })
+    async fn connection(&self) -> Result<(u64, MultiplexedConnection), StoreError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(StoreError::unavailable());
+        }
+
+        let mut slot = self.connection.lock().await;
+        if let Some(connection) = slot.connection.clone() {
+            return Ok((slot.generation, connection));
+        }
+
+        let new_connection = Self::open_connection(&self.client, self.timeout).await?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(StoreError::unavailable());
+        }
+        slot.generation = slot.generation.wrapping_add(1);
+        slot.connection = Some(new_connection.clone());
+        Ok((slot.generation, new_connection))
+    }
+
+    async fn invalidate_connection(&self, generation: u64) {
+        let mut slot = self.connection.lock().await;
+        if slot.generation == generation {
+            slot.connection.take();
+        }
     }
 
     async fn execute<T>(&self, command: redis::Cmd) -> Result<T, StoreError>
     where
         T: FromRedisValue,
     {
-        let mut connection = {
-            let connection = self.connection.lock().await;
-            connection.clone().ok_or_else(StoreError::unavailable)?
-        };
+        let (generation, mut connection) = self.connection().await?;
         let operation = async {
             command
                 .query_async(&mut connection)
                 .await
                 .map_err(|_| StoreError::unavailable())
         };
-
-        match timeout(self.timeout, operation).await {
+        let result = match timeout(self.timeout, operation).await {
             Ok(result) => result,
             Err(_) => Err(StoreError::unavailable()),
+        };
+
+        if result.is_err() && !self.closed.load(Ordering::Acquire) {
+            self.invalidate_connection(generation).await;
         }
+        result
     }
 }
 
@@ -176,9 +225,10 @@ impl LinkStore for RedisLinkStore {
     }
 
     async fn close(&self) -> Result<(), StoreError> {
+        self.closed.store(true, Ordering::Release);
         let connection = match timeout(self.timeout, async {
-            let mut connection = self.connection.lock().await;
-            connection.take()
+            let mut slot = self.connection.lock().await;
+            slot.connection.take()
         })
         .await
         {

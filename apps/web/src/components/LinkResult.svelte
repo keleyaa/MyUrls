@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, Clipboard, Copy } from '@lucide/svelte';
-  import type { CreateLinkResponse } from '@myurl/contracts';
+
+  import type { CreateLinkResponse } from '../lib/api.js';
 
   export let result: CreateLinkResponse;
   export let copied: boolean;

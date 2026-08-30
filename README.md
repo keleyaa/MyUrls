@@ -66,7 +66,6 @@ GET  /health/ready  -> 200 或 503，执行 Redis PING
 
 ```sh
 corepack pnpm install --frozen-lockfile
-corepack pnpm --filter @myurl/contracts build
 corepack pnpm --filter @myurl/web build
 cargo build -p myurl-server
 ```
