@@ -44,7 +44,7 @@ function runCapture(command, args, env) {
   });
 }
 
-const project = `myurl-v2-smoke-${process.pid}`;
+const project = `myurl-smoke-${process.pid}`;
 const port = await freePort();
 const baseUrl = `http://127.0.0.1:${port}`;
 const composeArgs = ['-f', 'docker-compose.yaml', '-p', project];
@@ -59,13 +59,16 @@ const env = {
   REDIS_PASSWORD: 'compose-smoke-password',
 };
 
+let mainError;
+let teardownError;
+
 try {
   await run('docker', ['compose', ...composeArgs, 'up', '-d', '--build', '--wait'], env);
   const live = await fetch(`${baseUrl}/health/live`);
   const ready = await fetch(`${baseUrl}/health/ready`);
   if (!live.ok || !ready.ok) throw new Error('health checks failed');
 
-  const create = await fetch(`${baseUrl}/api/v1/links`, {
+  const create = await fetch(`${baseUrl}/api/links`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url: 'https://example.com/compose-smoke' }),
@@ -98,10 +101,22 @@ try {
   if (portBindings !== '{}' && portBindings !== 'null') {
     throw new Error('Redis must not publish a host port');
   }
-} finally {
-  await run(
-    'docker',
-    ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
-    env,
-  ).catch(() => undefined);
+} catch (error) {
+  mainError = error;
 }
+
+try {
+  await run('docker', ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'], env);
+} catch (error) {
+  teardownError = error;
+}
+
+if (mainError && teardownError) {
+  throw new AggregateError(
+    [mainError, teardownError],
+    'Compose smoke test and teardown both failed',
+    { cause: mainError },
+  );
+}
+if (mainError) throw mainError;
+if (teardownError) throw new Error('Compose smoke teardown failed', { cause: teardownError });

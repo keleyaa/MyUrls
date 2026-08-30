@@ -111,7 +111,7 @@ if (!Number.isInteger(durationSeconds) || durationSeconds <= 0) {
   throw new Error('PERF_DURATION_SECONDS must be a positive integer');
 }
 
-const project = `myurl-v2-performance-${process.pid}`;
+const project = `myurl-performance-${process.pid}`;
 const port = await freePort();
 const baseUrl = `http://127.0.0.1:${port}`;
 const composeArgs = ['-f', 'docker-compose.yaml', '-p', project];
@@ -132,6 +132,9 @@ const env = {
   RESOLVE_LIMIT_10S: '1000000',
 };
 
+let mainError;
+let teardownError;
+
 try {
   await run('docker', ['compose', ...composeArgs, 'up', '-d', '--build', '--wait'], env);
   const live = await fetch(`${baseUrl}/health/live`);
@@ -139,7 +142,7 @@ try {
   if (!live.ok || !ready.ok) throw new Error('performance stack health checks failed');
 
   const seedBody = JSON.stringify({ url: 'https://example.com/performance-seed' });
-  const seedResponse = await requestHttp(`${baseUrl}/api/v1/links`, {
+  const seedResponse = await requestHttp(`${baseUrl}/api/links`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -167,7 +170,7 @@ try {
       const body = JSON.stringify({
         url: `https://example.com/performance/${workerId}/${sequence}`,
       });
-      return requestHttp(`${requestBaseUrl}/api/v1/links`, {
+      return requestHttp(`${requestBaseUrl}/api/links`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -206,11 +209,24 @@ try {
   if (create.errorRate >= 0.001 || resolve.errorRate >= 0.001) {
     throw new Error('performance error-rate target failed: expected < 0.1%');
   }
-} finally {
-  httpAgent.destroy();
-  await run(
-    'docker',
-    ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'],
-    env,
-  ).catch(() => undefined);
+} catch (error) {
+  mainError = error;
 }
+
+httpAgent.destroy();
+
+try {
+  await run('docker', ['compose', ...composeArgs, 'down', '--volumes', '--remove-orphans'], env);
+} catch (error) {
+  teardownError = error;
+}
+
+if (mainError && teardownError) {
+  throw new AggregateError(
+    [mainError, teardownError],
+    'Performance test and teardown both failed',
+    { cause: mainError },
+  );
+}
+if (mainError) throw mainError;
+if (teardownError) throw new Error('Performance teardown failed', { cause: teardownError });

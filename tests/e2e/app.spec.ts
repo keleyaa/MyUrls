@@ -103,7 +103,7 @@ test.describe('myurl user flows', () => {
       };
     });
     let firstRequest = true;
-    await page.route('**/api/v1/links', async (route) => {
+    await page.route('**/api/links', async (route) => {
       if (!firstRequest) {
         await route.continue();
         return;
@@ -113,7 +113,11 @@ test.describe('myurl user flows', () => {
         status: 403,
         contentType: 'application/json',
         body: JSON.stringify({
-          error: { code: 'challenge_required', requestId: 'req_test' },
+          type: 'http://127.0.0.1:4310/problems/challenge_required',
+          title: 'Challenge required',
+          status: 403,
+          code: 'challenge_required',
+          requestId: 'req_test',
           challenge: { provider: 'turnstile', siteKey: 'test-site-key' },
         }),
       });
@@ -152,7 +156,7 @@ test.describe('myurl user flows', () => {
 
   test('supports redirect, HEAD, and browser-safe 404 responses', async ({ page }) => {
     await openTool(page);
-    const response = await page.request.post('/api/v1/links', {
+    const response = await page.request.post('/api/links', {
       data: { url: 'https://example.com/redirect-flow' },
     });
     expect(response.status()).toBe(201);
