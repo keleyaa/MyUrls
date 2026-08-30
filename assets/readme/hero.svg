@@ -1,26 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
-  <title id="title">MyURL v2</title>
-  <desc id="desc">一个自托管的短链服务：将 HTTP(S) URL 转为 90 天有效的短入口。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">myurl</title>
+  <desc id="desc">一个自托管、匿名的短链工具：把长链接收成固定 90 天有效的清晰入口。</desc>
 
-  <rect width="1200" height="320" rx="20" fill="#f7f6f2"/>
-  <rect x="1" y="1" width="1198" height="318" rx="20" fill="none" stroke="#deddd7" stroke-width="2"/>
+  <rect width="1200" height="360" fill="#ff6841"/>
+  <path d="M0 282C202 230 333 335 556 279C755 229 930 184 1200 249V360H0Z" fill="#20211e"/>
+  <path d="M0 313C206 261 388 350 601 294C785 245 980 217 1200 271" fill="none" stroke="#d9fb55" stroke-width="5"/>
 
-  <g id="title-block" transform="translate(64 62)">
-    <text x="0" y="0" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">自托管短链服务</text>
-    <text x="0" y="82" fill="#171b19" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="72" font-weight="700">MyURL v2</text>
-    <text x="0" y="126" fill="#414a46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="26">为 HTTP(S) 链接生成 90 天有效的短入口。</text>
-    <path d="M0 168H520" stroke="#c9cec8" stroke-width="2"/>
-    <text x="0" y="205" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19">匿名 · 无统计 · 结果自动复制</text>
+  <g transform="translate(66 64)">
+    <text x="0" y="0" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="17" letter-spacing="2">SELF-HOSTED SHORT LINKS</text>
+    <text x="0" y="130" fill="#20211e" font-family="Arial Black, Arial, sans-serif" font-size="128" font-weight="900" letter-spacing="-9">myurl</text>
+    <text x="6" y="179" fill="#20211e" font-family="Arial, 'PingFang SC', sans-serif" font-size="28" font-weight="700">把长链接，收成一个清晰入口。</text>
+
+    <g transform="translate(4 220)">
+      <rect width="180" height="36" rx="18" fill="#20211e"/>
+      <text x="18" y="24" fill="#fff4e9" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">ANONYMOUS</text>
+      <rect x="193" width="154" height="36" rx="18" fill="#d9fb55"/>
+      <text x="211" y="24" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">90 DAYS</text>
+      <rect x="360" width="164" height="36" rx="18" fill="#fff4e9"/>
+      <text x="378" y="24" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">NO TRACKING</text>
+    </g>
   </g>
 
-  <g id="url-specimen" transform="translate(734 56)">
-    <path d="M0 0V208" stroke="#c9cec8" stroke-width="2"/>
-    <text x="34" y="12" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">HTTP(S) URL</text>
-    <text x="34" y="52" fill="#252d2a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22">example.com/docs/release</text>
-    <path d="M34 82H402" stroke="#c9cec8" stroke-width="2"/>
-    <path d="m394 76 10 6-10 6" fill="none" stroke="#0b8f68" stroke-width="2"/>
-    <text x="34" y="122" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">短路径 / 90 天有效</text>
-    <text x="34" y="166" fill="#0b8f68" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="28" font-weight="700">myurl.example/q7R3mK9xTa</text>
-    <text x="34" y="204" fill="#65706c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">302 跳转 · Redis TTL</text>
+  <g transform="translate(792 79)">
+    <rect width="338" height="182" rx="10" fill="#fff4e9" stroke="#20211e" stroke-width="3"/>
+    <path d="M25 38H313" stroke="#20211e" stroke-width="3"/>
+    <text x="26" y="27" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14">LONG URL</text>
+    <text x="26" y="75" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16">example.com/docs/release</text>
+    <path d="M26 99H312" stroke="#ff6841" stroke-width="4"/>
+    <text x="26" y="127" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">CLEAR ENTRY / 90 DAYS</text>
+    <text x="26" y="162" fill="#20211e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" font-weight="700">myurl.example/docs</text>
   </g>
+
+  <circle cx="1128" cy="57" r="12" fill="#d9fb55"/>
+  <circle cx="1158" cy="57" r="12" fill="#20211e"/>
 </svg>

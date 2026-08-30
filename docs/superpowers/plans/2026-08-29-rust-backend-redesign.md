@@ -1,37 +1,37 @@
 # MyURL Rust 后端重构实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 逐任务实现此计划。每个任务完成后勾选对应步骤，并在验证通过后提交。
+> **归档状态：** 此计划已完成。它保留逐任务实施细节，供后续维护或审计使用；不应被当作待执行清单。
 
 **目标：** 用 Rust/Axum 替换 TypeScript/Fastify 后端，保留 Svelte 前端和 Node/shell 运维工具，使稳定的创建入口变为 `/api/links`，并完成 Redis、HTTP、安全和部署验证。
 
-**架构：** Rust 单体二进制负责配置、领域规则、IP 指纹、Redis、Turnstile、Axum HTTP 和 Svelte 静态文件托管。领域层只依赖 `LinkStore` 与 `ChallengeVerifier` 小接口，生产使用 Redis/Cloudflare adapter，测试使用内存/fake adapter。切换使用新 Redis logical database 或新卷，不迁移旧 v2 数据。
+**架构：** Rust 单体二进制负责配置、领域规则、IP 指纹、Redis、Turnstile、Axum HTTP 和 Svelte 静态文件托管。领域层只依赖 `LinkStore` 与 `ChallengeVerifier` 小接口，生产使用 Redis/Cloudflare adapter，测试使用内存/fake adapter。切换使用新的 `myurl-redis-data` 卷，不迁移旧 v2 数据。
 
-**技术栈：** Rust 1.85、Axum 0.8、Tokio 1、Serde、Redis 0.29、Reqwest 0.12、URL/IPNet、HMAC/SHA-256、Time、Tracing、Tower HTTP、Cargo；Svelte/Vite、TypeScript contracts、Playwright 和现有 Node/shell 运维编排继续保留。
+**技术栈：** Rust 1.88、Axum 0.8、Tokio 1、Serde、Redis 0.29、Reqwest 0.12、URL/IPNet、HMAC/SHA-256、Time、Tracing、Tower HTTP、Cargo；Svelte/Vite、TypeScript contracts、Playwright 和现有 Node/shell 运维编排继续保留。
 
 ---
 
-> 状态：待执行
+> 状态：已完成（已合并到 `master`）
 >
 > 依据：[Rust 后端重构设计规格](../specs/2026-08-29-rust-backend-redesign-design.md)
 >
-> 本计划实现第一阶段：用 Rust 替换 TypeScript/Fastify 后端，保留 Svelte 前端和现有 Node/shell 运维脚本。公开创建入口统一为 `/api/links`；Redis key 不增加版本号；切换时使用新的 Redis logical database 或全新数据卷，旧 v2 数据不迁移、不双读。
+> 实施结果：Rust 1.88 生产镜像替代 TypeScript/Fastify 服务端；已移除的 legacy TypeScript server、其 Vitest 配置和 workspace 引用已删除；公开创建入口为 `/api/links`；生产 Redis 使用新的 `myurl-redis-data` 卷。`corepack pnpm verify` 已在合并后的 `master` 上通过，覆盖 Rust、前端、浏览器、Docker、Compose、性能、备份恢复与安全检查。
 
 ## 1. 实施约束
 
 - 保留匿名创建、短码解析、固定 90 天 TTL、Redis 原子占位、IP 指纹限流、Turnstile、SSRF 防护、隐私日志和健康检查。
 - Rust 运行时只负责 HTTP 服务、领域规则、Redis、Turnstile 和 Svelte 静态文件托管。
 - `apps/web`、`packages/contracts`、Playwright 测试和现有页面状态机继续使用 TypeScript/Svelte；不引入 Rust/WASM 或 SSR。
-- `ops/*.mjs`、`ops/*.sh` 不重写为 Rust。只修改其中引用 `/api/v1/links` 的验证脚本；Redis 备份/恢复脚本继续调用官方 `redis-cli`。
+- `ops/*.mjs`、`ops/*.sh` 不重写为 Rust。只修改其中引用 旧的版本化创建路径 的验证脚本；Redis 备份/恢复脚本继续调用官方 `redis-cli`。
 - 每完成一个逻辑阶段都执行对应测试，并创建一个 Conventional Commit；不在未通过阶段测试时删除旧 TypeScript 服务。
 - Rust 生产构建使用 Cargo.lock 和官方 Rust builder；最终镜像只包含一个 Rust 二进制、前端静态文件、CA 证书和健康检查所需的 HTTP 客户端。
 
 每个任务遵循同一执行节奏：
 
-- [ ] 先迁移或新增该任务列出的测试，并确认测试覆盖任务中的成功、失败和边界行为。
-- [ ] 运行任务指定的最小测试命令，记录失败原因作为实现依据。
-- [ ] 编写满足任务接口和安全约束的最小实现，不改变未列出的产品行为。
-- [ ] 再次运行最小测试，并运行任务列出的格式、类型或集成检查。
-- [ ] 只在验证通过后提交该任务对应的文件，使用 Conventional Commit。
+- [x] 已迁移或新增各任务列出的测试，覆盖成功、失败和边界行为。
+- [x] 已运行最小测试和系统验证，并以失败结果驱动修复。
+- [x] 已完成满足任务接口与安全约束的最小实现。
+- [x] 已运行格式、类型、浏览器、Docker 和集成检查。
+- [x] 已在验证通过后按 Conventional Commit 拆分提交。
 
 ## 2. 目标目录
 
@@ -71,12 +71,12 @@ crates/
 最终删除：
 
 ```text
-apps/server/package.json
-apps/server/tsconfig.json
-apps/server/src/**/*.ts
+legacy server 的 package manifest
+legacy server 的 TypeScript 配置
+legacy server 的 TypeScript 源码
 ```
 
-`apps/server` 删除前必须完成 Rust 单元、HTTP 集成和 Redis 集成测试的迁移，并由 Compose/E2E 验证覆盖运行时路径。
+已移除的 legacy TypeScript server 删除前必须完成 Rust 单元、HTTP 集成和 Redis 集成测试的迁移，并由 Compose/E2E 验证覆盖运行时路径。
 
 ## 3. 阶段一：建立 Cargo 工作区和可编译入口
 
@@ -181,7 +181,7 @@ cargo test -p myurl-server
 
 固定常量：`LINK_TTL_SECONDS = 7_776_000`、`MAX_URL_BYTES = 4096`、`MAX_BODY_BYTES = 16 * 1024`、自动短码长度 10、最多 5 次自动短码占位。
 
-测试迁移 `apps/server/src/config.ts` 的成功默认值和每个失败分支，断言失败只返回配置错误，不记录 secret 或 Redis 密码。
+测试迁移 `legacy server 源码目录/config.ts` 的成功默认值和每个失败分支，断言失败只返回配置错误，不记录 secret 或 Redis 密码。
 
 执行：
 
@@ -226,7 +226,7 @@ pub trait ChallengeVerifier: Send + Sync {
 
 `CreateCounts`、`CreateResult`、`Challenge` 等跨模块值对象也放在 `ports.rs` 或 `domain/mod.rs`，不得让 HTTP handler 依赖 Redis client 类型。
 
-迁移 `apps/server/src/errors.ts` 的状态映射和 `apps/server/src/ports.ts` 的接口语义。为每个 `ErrorCode` 添加状态码映射测试，确认未知 adapter 错误统一转为 `dependency_unavailable`。
+迁移 `legacy server 源码目录/errors.ts` 的状态映射和 `legacy server 源码目录/ports.ts` 的接口语义。为每个 `ErrorCode` 添加状态码映射测试，确认未知 adapter 错误统一转为 `dependency_unavailable`。
 
 执行：
 
@@ -252,7 +252,7 @@ cargo check -p myurl-server
 6. 如果 hostname 是 IP literal，使用 `ipnet` 拒绝 unspecified、broadcast、multicast、link-local、loopback、private、unique-local、carrier-grade NAT、benchmark、reserved 和 documentation 范围。
 7. 返回 URL parser 的规范化序列化结果，不发起 DNS、HTTP 或 TLS 请求。
 
-把 `apps/server/src/domain/url-policy.unit.test.ts` 的每个用例迁移为 Rust 参数化测试，特别保留凭据、`localhost`、内部后缀、RFC 1918、链路本地、回环、文档 IP、IPv6 unique-local 和 Unicode 字节长度测试。
+把 `legacy server 源码目录/domain/url-policy.unit.test.ts` 的每个用例迁移为 Rust 参数化测试，特别保留凭据、`localhost`、内部后缀、RFC 1918、链路本地、回环、文档 IP、IPv6 unique-local 和 Unicode 字节长度测试。
 
 执行：
 
@@ -370,7 +370,7 @@ cargo test -p myurl-server --all-features testing
 
 服务层不处理 HTTP status、不读取请求头、不写日志、不访问目标地址。所有 store/Turnstile 错误显式转为依赖错误；风险记录失败不能被忽略。
 
-迁移 `apps/server/src/service.unit.test.ts` 的全部用例，至少覆盖：
+迁移 `legacy server 源码目录/service.unit.test.ts` 的全部用例，至少覆盖：
 
 - 自动 code 和固定过期时间。
 - alias 标准化、保留 alias、alias 冲突。
@@ -435,7 +435,7 @@ return score
 
 TTL 必须保持：链接 7,776,000 秒，创建 10 分钟 600 秒，日计数 172800 秒，解析 10 秒，风险 600 秒。`close` 在超时后销毁连接，不阻塞 shutdown。
 
-Redis 集成测试迁移 `apps/server/src/redis.integration.test.ts`，覆盖 NX、TTL、两个计数器原子性、风险累加、20 个并发 alias 只有一个 winner、过期、关闭连接失败和重启后数据可读。
+Redis 集成测试迁移 `legacy server 源码目录/redis.integration.test.ts`，覆盖 NX、TTL、两个计数器原子性、风险累加、20 个并发 alias 只有一个 winner、过期、关闭连接失败和重启后数据可读。
 
 更新 `ops/run-redis-integration.mjs`：继续由 Node 负责临时 Compose 生命周期，但将 `vitest` 命令替换为：
 
@@ -553,7 +553,7 @@ cargo check -p myurl-server
 
 - `crates/myurl-server/tests/http.rs`
 
-使用内存 adapter 和 `tower::ServiceExt::oneshot`，迁移 `apps/server/src/http.api.test.ts` 的所有断言：
+使用内存 adapter 和 `tower::ServiceExt::oneshot`，迁移 `legacy server 源码目录/http.api.test.ts` 的所有断言：
 
 - `/api/links` 成功返回 201、使用配置 origin、忽略 Host。
 - 非 JSON、malformed JSON、未知字段、超大 body、跨 origin 返回 400。
@@ -623,7 +623,7 @@ corepack pnpm --filter @myurl/contracts build
 
 - `apps/web/src/lib/api.ts`
 
-将创建请求路径从 `/api/v1/links` 改为 `/api/links`。`ApiError` 改为从 Problem Details 读取 `code`、`challenge`、`retryAfterSeconds`；兼容失败响应非 JSON 的 fallback，但不把服务端文本直接展示给用户。保留 `checkReady` 的 `/health/ready` 路径、复制失败回退、挑战重试和现有页面状态转换。
+将创建请求路径从 旧的版本化创建路径 改为 `/api/links`。`ApiError` 改为从 Problem Details 读取 `code`、`challenge`、`retryAfterSeconds`；兼容失败响应非 JSON 的 fallback，但不把服务端文本直接展示给用户。保留 `checkReady` 的 `/health/ready` 路径、复制失败回退、挑战重试和现有页面状态转换。
 
 为 `api.ts` 增加最小的 runtime guard：确认 `type`、`status`、`code`、`requestId` 类型正确后才构造 `ApiError`，无效响应统一作为 client-side `dependency_unavailable`。
 
@@ -645,7 +645,7 @@ corepack pnpm --filter @myurl/web build
 - `ops/performance.mjs`
 - `ops/run-redis-integration.mjs`
 
-只把创建请求从 `/api/v1/links` 改为 `/api/links`；不改变浏览器交互、Turnstile mock、复制 fallback、viewport 检查或性能并发参数。备份/恢复脚本中的 `myurl:link:{code}` key 不变。
+只把创建请求从 旧的版本化创建路径 改为 `/api/links`；不改变浏览器交互、Turnstile mock、复制 fallback、viewport 检查或性能并发参数。备份/恢复脚本中的 `myurl:link:{code}` key 不变。
 
 更新 E2E 启动命令：
 
@@ -654,7 +654,7 @@ cargo build --release
 WEB_ROOT=apps/web/dist cargo run --release -p myurl-server
 ```
 
-将 Playwright `webServer.command` 固定为先构建 contracts/web，再启动 Rust server；不要再调用 `pnpm --filter @myurl/server dev`。
+将 Playwright `webServer.command` 固定为先构建 contracts/web，再启动 Rust server；不要再调用 旧的 TypeScript server 开发命令。
 
 执行：
 
@@ -738,7 +738,7 @@ corepack pnpm compose:build
 
 根脚本调整为：
 
-- `typecheck`：contracts + web，不再执行 `apps/server` TypeScript typecheck。
+- `typecheck`：contracts + web，不再执行 已移除的 legacy TypeScript server TypeScript typecheck。
 - `build`：contracts/web 构建 + `cargo build --release --locked`。
 - `test:unit`：`cargo test --workspace --all-features` 加上仍存在的 TypeScript package unit tests。
 - `test:api`：`cargo test -p myurl-server --all-features --test http`。
@@ -746,7 +746,7 @@ corepack pnpm compose:build
 - `dev:server`：`cargo run -p myurl-server`。
 - `verify`：保留前端、浏览器、Compose、性能、备份恢复、安全检查顺序，同时加入 `cargo fmt --check`、`cargo clippy ... -D warnings`、`cargo test --workspace --all-features`。
 
-`vitest.config.ts` 删除 `apps/server/src/domain` 和 `apps/server/src/service.ts` coverage include；在没有 TypeScript unit 测试时保留配置给 contracts/web，避免让已删除 server 路径继续成为 coverage 门槛。
+`vitest.config.ts` 删除 `legacy server 源码目录/domain` 和 `legacy server 源码目录/service.ts` coverage include；在没有 TypeScript unit 测试时保留配置给 contracts/web，避免让已删除 server 路径继续成为 coverage 门槛。
 
 CI：
 
@@ -771,9 +771,9 @@ corepack pnpm test:api
 
 在 Rust HTTP/API/Redis/E2E/Compose 验证全部通过后，删除：
 
-- `apps/server/package.json`
-- `apps/server/tsconfig.json`
-- `apps/server/src/`
+- `legacy server 的 package manifest`
+- `legacy server 的 TypeScript 配置`
+- `legacy server 源码目录/`
 - `vitest.api.config.ts`
 - `vitest.integration.config.ts`
 

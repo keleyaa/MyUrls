@@ -46,20 +46,25 @@ curl --fail --silent http://127.0.0.1:${APP_PORT:-3000}/health/ready
 | `PUBLIC_BASE_URL`         | 无                     | 生成短链使用的可信 HTTPS origin                          |
 | `REDIS_URL`               | `redis://redis:6379/0` | Redis URL，支持 `redis` 和 `rediss`                      |
 | `REDIS_PASSWORD`          | 空                     | Compose Redis 密码；应用会在启动时合并到 `REDIS_URL`     |
+| `REDIS_TIMEOUT_MS`        | `750`                  | 单条 Redis 命令的超时                                    |
 | `IP_HASH_SECRET`          | 无                     | HMAC 密钥，至少 32 字节                                  |
 | `TRUST_PROXY_CIDRS`       | 空                     | 逗号分隔的可信代理 CIDR                                  |
 | `TURNSTILE_ENABLED`       | `true`                 | 生产必须启用                                             |
+| `TURNSTILE_MODE`          | `cloudflare`           | `cloudflare` 或仅测试可用的 `test`                       |
 | `TURNSTILE_SITE_KEY`      | 无                     | 仅作为挑战响应返回给浏览器                               |
 | `TURNSTILE_SECRET_KEY`    | 无                     | 只在服务端验证 Turnstile                                 |
 | `TURNSTILE_HOSTNAME`      | 无                     | 生产响应 hostname 校验值                                 |
+| `TURNSTILE_TIMEOUT_MS`    | `2500`                 | 单次 Turnstile 验证的总超时                              |
 | `CREATE_DIRECT_LIMIT_10M` | `5`                    | 10 分钟内免挑战创建数                                    |
 | `CREATE_HARD_LIMIT_10M`   | `20`                   | 10 分钟硬上限                                            |
 | `CREATE_HARD_LIMIT_1D`    | `100`                  | UTC 日硬上限                                             |
 | `RESOLVE_LIMIT_10S`       | `600`                  | 单个 IP 在 10 秒内的短链解析上限                         |
 | `RISK_CHALLENGE_SCORE`    | `3`                    | 触发挑战的风险分                                         |
 | `RISK_BLOCK_SCORE`        | `8`                    | 触发 `429` 的风险分                                      |
+| `REQUEST_TIMEOUT_MS`      | `10000`                | HTTP 请求处理总超时                                      |
+| `SHUTDOWN_TIMEOUT_MS`     | `10000`                | 收到停止信号后的 drain 与存储关闭总时限                  |
 
-配置在启动时一次解析并冻结。缺少密钥、生产使用 HTTP、限制关系错误、非法 CIDR 或测试模式进入生产都会导致非零退出。
+配置在启动时一次解析并冻结。缺少密钥、生产使用 HTTP、限制关系错误、非法 CIDR 或测试模式进入生产都会导致非零退出。`TEST_STORE=memory`、`TURNSTILE_MODE=test` 和 `TEST_FORCE_CHALLENGE` 仅在启用 `test-support` feature 的测试环境使用，不应写入生产 `.env`。
 
 ## 日志与隐私
 

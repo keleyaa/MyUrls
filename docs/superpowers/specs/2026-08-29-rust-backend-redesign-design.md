@@ -1,8 +1,10 @@
 # MyURL Rust 后端重构设计规格
 
-> 状态：已确认，待执行
+> 状态：已完成（已合并到 `master`）
 >
-> 本规格描述第一阶段：使用 Rust 重写后端，保留 Svelte 前端的视觉和交互。它不把实现语言变化自动升级为公开 API 版本。
+> 本规格记录已完成的第一阶段：Rust 重写后端，同时保留 Svelte 前端与核心交互。前端视觉已在后续独立提交中重构；这不把实现语言变化自动升级为公开 API 版本。
+>
+> 实施结果：生产运行时为 Rust 1.88/Axum，稳定创建入口为 `POST /api/links`，旧 TypeScript/Fastify 服务端已删除，发布使用新的 `myurl-redis-data` 数据卷。`corepack pnpm verify` 已在合并后的 `master` 上通过。
 
 ## 目标
 
@@ -46,7 +48,7 @@
 POST /api/links
 ```
 
-不使用 `/api/v1`、`/api/v2` 或 `/api/v3` 这类实现版本路径。只有在未来出现无法兼容的公开协议时，才新增明确的兼容入口。
+不使用实现版本编号的公开路径。只有在未来出现无法兼容的公开协议时，才新增明确的兼容入口。
 
 其他入口保持职责稳定：
 
@@ -277,8 +279,8 @@ HTTP GET/HEAD /:code
 
 Svelte 页面、组件、样式、Turnstile 加载时机、复制回退和页面状态机保持不变。只修改：
 
-- `apps/web/src/lib/api.ts`：请求路径改为 `/api/links`，按 Problem Details 读取错误。
-- `packages/contracts`：更新请求、成功响应、挑战和错误类型，使其与新契约一致；它在前端迁移完成前仍作为临时 TypeScript 类型层存在。
+- `apps/web/src/lib/api.ts`：请求路径为 `/api/links`，按 Problem Details 读取错误，并在运行时验证成功与错误 payload。
+- `packages/contracts`：维护请求、成功响应、挑战和 Problem Details 类型，作为 Svelte 前端的 TypeScript 契约层。
 - 相关 E2E mock、API 路径断言和文档示例。
 
 Rust 后端是请求/响应行为的唯一运行时实现；前端类型不能反过来决定服务端的安全规则。

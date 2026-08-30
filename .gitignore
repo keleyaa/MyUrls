@@ -14,6 +14,11 @@ test-results/
 coverage/
 output/
 .pnpm-store/
+
+# 本地构建、agent 会话和审计产物
+.pi/
+target/
+artifacts/
 ops/backups/
 .superpowers/
 .worktrees/
