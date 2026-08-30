@@ -2,7 +2,7 @@
 name = "myurl-server"
 version = "2.0.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [features]
 test-support = []

@@ -121,7 +121,7 @@ members = ["crates/myurl-server"]
 name = "myurl-server"
 version = "2.0.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [features]
 test-support = []
@@ -670,7 +670,7 @@ corepack pnpm test:e2e
 
 采用四段构建：
 
-1. `rust-builder`：官方 Rust 1.85 bookworm builder，复制 Cargo manifest 和 lockfile，先 `cargo fetch`，再复制 `crates`，执行 `cargo build --release --locked`。
+1. `rust-builder`：官方 Rust 1.88 bookworm builder，复制 Cargo manifest 和 lockfile，先 `cargo fetch`，再复制 `crates`，执行 `cargo build --release --locked`。
 2. `web-dependencies`：沿用当前 Node 24 digest 和 Corepack，复制 pnpm workspace manifest 与 lockfile，执行 frozen install。
 3. `web-builder`：复制前端和 contracts，执行 `pnpm build`，产出 `apps/web/dist`。
 4. `runtime`：使用 Debian slim，安装 ca-certificates 和 curl，创建 UID 10001 的非 root 用户，复制 Rust 二进制到 `/usr/local/bin/myurl-server`，复制静态文件到 `/app/web`，设置 `WEB_ROOT=/app/web`，只暴露 3000。

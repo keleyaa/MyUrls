@@ -61,7 +61,7 @@ GET  /health/ready  -> 200 或 503，执行 Redis PING
 
 ### 本地开发
 
-需要 Rust `1.85`、Node.js `24.14.1` 与 Corepack。完整验证另需 Docker Compose v2、Chromium、WebKit 和 Trivy `0.74.0`。
+需要 Rust `1.88`、Node.js `24.14.1` 与 Corepack。完整验证另需 Docker Compose v2、Chromium、WebKit 和 Trivy `0.74.0`。
 
 ```sh
 corepack pnpm install --frozen-lockfile
