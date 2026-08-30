@@ -15,10 +15,10 @@ use axum::{
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{any, get, post},
+    routing::{any, get, get_service, post},
 };
 use serde::{Deserialize, Serialize};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use crate::{
@@ -203,7 +203,16 @@ pub fn build_app_with_static(
     service: Arc<ShortLinkService>,
     web_root: PathBuf,
 ) -> Router {
-    build_router(config, store, service).fallback_service(ServeDir::new(web_root))
+    build_router(config, store, service)
+        .route_service(
+            "/robots.txt",
+            get_service(ServeFile::new(web_root.join("robots.txt"))),
+        )
+        .route_service(
+            "/sitemap.xml",
+            get_service(ServeFile::new(web_root.join("sitemap.xml"))),
+        )
+        .fallback_service(ServeDir::new(web_root))
 }
 
 fn build_router(

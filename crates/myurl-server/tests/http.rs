@@ -62,6 +62,9 @@ fn static_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!("myurl-http-test-{}", Uuid::new_v4()));
     fs::create_dir_all(root.join("assets")).expect("static assets directory can be created");
     fs::write(root.join("index.html"), "<main>MyUrls</main>").expect("index can be written");
+    fs::write(root.join("robots.txt"), "User-agent: *\nDisallow:\n")
+        .expect("robots file can be written");
+    fs::write(root.join("sitemap.xml"), "<urlset></urlset>").expect("sitemap file can be written");
     fs::write(root.join("assets/app.js"), "console.log('myurls')").expect("asset can be written");
     root
 }
@@ -531,19 +534,25 @@ async fn static_fallback_preserves_problem_details_for_unknown_api_routes() {
         .await;
     }
 
-    let asset_response = call(
-        &app,
-        Request::builder()
-            .uri("/assets/app.js")
-            .body(Body::empty())
-            .expect("asset request is valid"),
-    )
-    .await;
-    assert_eq!(asset_response.status(), StatusCode::OK);
-    let asset_body = to_bytes(asset_response.into_body(), usize::MAX)
-        .await
-        .expect("asset response body is readable");
-    assert_eq!(asset_body.as_ref(), b"console.log('myurls')");
+    for (path, expected_body) in [
+        ("/robots.txt", b"User-agent: *\nDisallow:\n".as_slice()),
+        ("/sitemap.xml", b"<urlset></urlset>".as_slice()),
+        ("/assets/app.js", b"console.log('myurls')".as_slice()),
+    ] {
+        let asset_response = call(
+            &app,
+            Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .expect("asset request is valid"),
+        )
+        .await;
+        assert_eq!(asset_response.status(), StatusCode::OK, "{path} is served");
+        let asset_body = to_bytes(asset_response.into_body(), usize::MAX)
+            .await
+            .expect("asset response body is readable");
+        assert_eq!(asset_body.as_ref(), expected_body, "{path} body matches");
+    }
 
     close(&memory_store).await;
     fs::remove_dir_all(root).expect("temporary static root can be removed");

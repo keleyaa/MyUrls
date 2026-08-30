@@ -24,7 +24,7 @@
     "backup:restore": "node ops/backup-restore-test.mjs",
     "audit:runtime": "corepack pnpm audit --prod --audit-level=high && node ops/scan-runtime.mjs",
     "security:scan": "node ops/container-security-scan.mjs",
-    "verify": "corepack pnpm format && cargo fmt --all --check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test:unit && corepack pnpm test:integration && corepack pnpm test:api && corepack pnpm build && corepack pnpm test:e2e && corepack pnpm compose:build && corepack pnpm security:scan && corepack pnpm compose:smoke && corepack pnpm performance:smoke && corepack pnpm backup:restore && corepack pnpm audit:runtime && git diff --check"
+    "verify": "corepack pnpm format && cargo fmt --all --check && corepack pnpm lint && corepack pnpm typecheck && cargo clippy -p myurl-server --all-targets --all-features -- -D warnings && corepack pnpm test:unit && corepack pnpm test:integration && corepack pnpm test:api && corepack pnpm build && corepack pnpm test:e2e && corepack pnpm compose:build && corepack pnpm security:scan && corepack pnpm compose:smoke && corepack pnpm performance:smoke && corepack pnpm backup:restore && corepack pnpm audit:runtime && git diff --check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
