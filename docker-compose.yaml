@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   app:
-    image: myurl-v2-app:local
+    image: myurl-app:local
     build:
       context: .
       target: runtime
@@ -43,7 +43,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
-    user: node
+    user: '10001:10001'
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -52,9 +52,10 @@ services:
     healthcheck:
       test:
         - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3000/health/live').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+        - curl
+        - --fail
+        - --silent
+        - http://127.0.0.1:3000/health/live
       interval: 5s
       timeout: 3s
       retries: 12
@@ -75,7 +76,7 @@ services:
         fi
         exec redis-server $$redis_args
     volumes:
-      - myurl-v2-redis-data:/data
+      - myurl-redis-data:/data
     healthcheck:
       test:
         - CMD-SHELL
@@ -91,4 +92,4 @@ services:
     logging: *default-logging
 
 volumes:
-  myurl-v2-redis-data:
+  myurl-redis-data:
