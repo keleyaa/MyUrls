@@ -193,20 +193,53 @@
 </svelte:head>
 
 <div class="app-shell">
-  <BrandHeader {ready} />
+  <aside class="brand-stage" aria-labelledby="page-title">
+    <BrandHeader {ready} />
 
-  <main>
-    <section class="intro" aria-labelledby="page-title">
-      <h1 id="page-title">myurl</h1>
-      <p>把长链接收进一个短而清晰的入口。</p>
-    </section>
+    <div class="brand-content">
+      <p class="brand-kicker">匿名短链 · 自托管</p>
+      <h1 id="page-title" class="brand-wordmark" aria-label="myurl">
+        <span>my</span>
+        <span>url</span>
+      </h1>
+      <p class="brand-statement">把冗长的地址，<br />折进一个清晰的入口。</p>
+
+      <dl class="brand-rules">
+        <div>
+          <dt>01</dt>
+          <dd>无需账户</dd>
+        </div>
+        <div>
+          <dt>02</dt>
+          <dd>90 天自动失效</dd>
+        </div>
+        <div>
+          <dt>03</dt>
+          <dd>不记录原始地址</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="brand-fold" aria-hidden="true">
+      <span>short</span>
+      <span>clear</span>
+      <span>yours</span>
+    </div>
+  </aside>
+
+  <main class="tool-stage">
+    <div class="tool-meta" aria-hidden="true">
+      <span>TOOL · 01</span>
+      <span>LINK COMPRESSOR</span>
+    </div>
 
     <section class="workspace" aria-label="短链接生成器">
       <header class="workspace-header">
         <div>
-          <h2>生成短链接</h2>
+          <p class="workspace-index">短链接生成器</p>
+          <h2>把链接留给<br />需要的人。</h2>
         </div>
-        <span class="workspace-expiry">90 天有效</span>
+        <span class="workspace-expiry">90 DAYS</span>
       </header>
 
       <LinkComposer
@@ -264,7 +297,8 @@
         <p class="sr-status" role="status" aria-live="polite">{statusMessage}</p>
       {/if}
     </section>
-  </main>
 
-  <ProjectFooter />
+    <p class="tool-note">原始地址不会出现在公开短链中。</p>
+    <ProjectFooter />
+  </main>
 </div>
