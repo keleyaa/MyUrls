@@ -1,4 +1,5 @@
 import { Type, type Static } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 
 export const CreateLinkBodySchema = Type.Object(
   {
@@ -18,6 +19,10 @@ export const CreateLinkResponseSchema = Type.Object({
 });
 
 export type CreateLinkResponse = Static<typeof CreateLinkResponseSchema>;
+
+export function isCreateLinkResponse(value: unknown): value is CreateLinkResponse {
+  return Value.Check(CreateLinkResponseSchema, value);
+}
 
 export const ErrorCodeSchema = Type.Union([
   Type.Literal('invalid_request'),

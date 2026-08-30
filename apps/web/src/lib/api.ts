@@ -1,3 +1,4 @@
+import { isCreateLinkResponse } from '@myurl/contracts';
 import type {
   Challenge,
   CreateLinkInput,
@@ -123,7 +124,11 @@ export async function createLink(input: CreateLinkInput): Promise<CreateLinkResp
     throw new ApiError(dependencyUnavailable);
   }
 
-  return payload as CreateLinkResponse;
+  if (isCreateLinkResponse(payload)) {
+    return payload;
+  }
+
+  throw new ApiError(dependencyUnavailable);
 }
 
 export async function checkReady(): Promise<boolean> {
