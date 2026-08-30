@@ -1,5 +1,5 @@
 {
-  "name": "myurl-v2",
+  "name": "myurl",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.24.0",
@@ -7,38 +7,35 @@
     "node": ">=24.14.1 <25"
   },
   "scripts": {
-    "format": "prettier --ignore-unknown --check package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs vitest*.config.ts playwright.config.ts apps packages tests ops .github Dockerfile docker-compose.yaml .env.example README.md",
-    "format:write": "prettier --ignore-unknown --write package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs vitest*.config.ts playwright.config.ts apps packages tests ops .github Dockerfile docker-compose.yaml .env.example README.md",
-    "lint": "eslint apps packages tests ops *.config.ts",
-    "typecheck": "pnpm --filter @myurl/contracts build && pnpm --filter @myurl/server typecheck && pnpm --filter @myurl/web check",
-    "test:unit": "vitest run --config vitest.config.ts --coverage",
-    "test:api": "vitest run --config vitest.api.config.ts",
+    "format": "prettier --ignore-unknown --check package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs playwright.config.ts apps packages tests ops .github Dockerfile docker-compose.yaml .env.example README.md docs",
+    "format:write": "prettier --ignore-unknown --write package.json pnpm-workspace.yaml tsconfig*.json eslint.config.mjs prettier.config.mjs playwright.config.ts apps packages tests ops .github Dockerfile docker-compose.yaml .env.example README.md docs && cargo fmt --all",
+    "lint": "eslint apps packages tests ops playwright.config.ts",
+    "typecheck": "corepack pnpm --filter @myurl/contracts build && corepack pnpm --filter @myurl/web check && cargo check -p myurl-server --all-features",
+    "test:unit": "cargo test -p myurl-server --all-features --lib --test service",
+    "test:api": "cargo test -p myurl-server --all-features --test http",
     "test:integration": "node ops/run-redis-integration.mjs",
-    "build": "pnpm typecheck && pnpm --filter @myurl/web build && pnpm --filter @myurl/server build",
-    "dev:web": "pnpm --filter @myurl/contracts build && pnpm --filter @myurl/web dev",
-    "dev:server": "pnpm --filter @myurl/server dev",
+    "build": "corepack pnpm typecheck && corepack pnpm --filter @myurl/web build && cargo build -p myurl-server --release",
+    "dev:web": "corepack pnpm --filter @myurl/contracts build && corepack pnpm --filter @myurl/web dev",
+    "dev:server": "cargo run -p myurl-server --features test-support",
     "test:e2e": "playwright test",
     "compose:build": "docker compose build",
     "compose:smoke": "node ops/compose-smoke.mjs",
     "performance:smoke": "node ops/performance.mjs",
     "backup:restore": "node ops/backup-restore-test.mjs",
-    "audit:runtime": "pnpm audit --prod --audit-level=high && node ops/scan-runtime.mjs",
+    "audit:runtime": "corepack pnpm audit --prod --audit-level=high && node ops/scan-runtime.mjs",
     "security:scan": "node ops/container-security-scan.mjs",
-    "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:api && pnpm build && pnpm test:e2e && pnpm compose:build && pnpm security:scan && pnpm compose:smoke && pnpm performance:smoke && pnpm backup:restore && pnpm audit:runtime && git diff --check"
+    "verify": "corepack pnpm format && cargo fmt --all --check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test:unit && corepack pnpm test:integration && corepack pnpm test:api && corepack pnpm build && corepack pnpm test:e2e && corepack pnpm compose:build && corepack pnpm security:scan && corepack pnpm compose:smoke && corepack pnpm performance:smoke && corepack pnpm backup:restore && corepack pnpm audit:runtime && git diff --check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.62.1",
     "@types/node": "26.3.0",
-    "@vitest/coverage-v8": "4.1.11",
     "eslint": "10.9.1",
     "eslint-plugin-svelte": "3.23.0",
     "prettier": "3.9.6",
     "prettier-plugin-svelte": "4.1.1",
     "svelte-check": "4.7.6",
-    "tsx": "4.23.12",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.68.0",
-    "vitest": "4.1.11"
+    "typescript-eslint": "8.68.0"
   }
 }
