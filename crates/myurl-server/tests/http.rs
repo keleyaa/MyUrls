@@ -83,6 +83,7 @@ fn static_root() -> PathBuf {
     fs::write(root.join("robots.txt"), "User-agent: *\nDisallow:\n")
         .expect("robots file can be written");
     fs::write(root.join("sitemap.xml"), "<urlset></urlset>").expect("sitemap file can be written");
+    fs::write(root.join("favicon.svg"), "<svg></svg>").expect("favicon can be written");
     fs::write(root.join("assets/app.js"), "console.log('myurls')").expect("asset can be written");
     root
 }
@@ -202,7 +203,7 @@ async fn request_timeout_limits_slow_challenge_verification() {
     )
     .await;
 
-    assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+    assert_problem(response, StatusCode::REQUEST_TIMEOUT, "request_timeout").await;
     close(&store).await;
 }
 
@@ -577,6 +578,7 @@ async fn static_fallback_preserves_problem_details_for_unknown_api_routes() {
     for (path, expected_body) in [
         ("/robots.txt", b"User-agent: *\nDisallow:\n".as_slice()),
         ("/sitemap.xml", b"<urlset></urlset>".as_slice()),
+        ("/favicon.svg", b"<svg></svg>".as_slice()),
         ("/assets/app.js", b"console.log('myurls')".as_slice()),
     ] {
         let asset_response = call(

@@ -98,6 +98,19 @@ impl ProblemDetails {
         problem
     }
 
+    fn from_code(code: ErrorCode, config: &AppConfig, request_id: RequestId) -> Self {
+        Self::from_response_metadata(
+            ResponseMetadata {
+                code,
+                status_code: code.status_code(),
+                retry_after_seconds: None,
+                challenge: None,
+            },
+            config,
+            request_id,
+        )
+    }
+
     fn from_response_metadata(
         metadata: ResponseMetadata,
         config: &AppConfig,
@@ -170,6 +183,7 @@ fn problem_title(code: ErrorCode) -> &'static str {
         ErrorCode::UrlNotAllowed => "URL not allowed",
         ErrorCode::AliasInvalid => "Alias invalid",
         ErrorCode::RateLimited => "Rate limited",
+        ErrorCode::RequestTimeout => "Request timeout",
         ErrorCode::DependencyUnavailable => "Dependency unavailable",
         ErrorCode::CodeGenerationExhausted => "Code generation exhausted",
     }
@@ -194,10 +208,10 @@ pub fn build_app(
     store: Arc<dyn LinkStore>,
     service: Arc<ShortLinkService>,
 ) -> Router {
-    let request_timeout = Duration::from_millis(config.request_timeout_ms);
+    let timeout_state = RequestTimeoutState::new(&config);
     with_middleware(
         build_router(config, store, service).fallback(fallback),
-        request_timeout,
+        timeout_state,
     )
 }
 
@@ -208,7 +222,7 @@ pub fn build_app_with_static(
     service: Arc<ShortLinkService>,
     web_root: PathBuf,
 ) -> Router {
-    let request_timeout = Duration::from_millis(config.request_timeout_ms);
+    let timeout_state = RequestTimeoutState::new(&config);
     with_middleware(
         build_router(config, store, service)
             .route_service(
@@ -219,8 +233,12 @@ pub fn build_app_with_static(
                 "/sitemap.xml",
                 get_service(ServeFile::new(web_root.join("sitemap.xml"))),
             )
+            .route_service(
+                "/favicon.svg",
+                get_service(ServeFile::new(web_root.join("favicon.svg"))),
+            )
             .fallback_service(ServeDir::new(web_root)),
-        request_timeout,
+        timeout_state,
     )
 }
 
@@ -245,11 +263,26 @@ fn build_router(
         .with_state(state)
 }
 
-fn with_middleware(router: Router, request_timeout: Duration) -> Router {
+#[derive(Clone)]
+struct RequestTimeoutState {
+    timeout: Duration,
+    config: Arc<AppConfig>,
+}
+
+impl RequestTimeoutState {
+    fn new(config: &AppConfig) -> Self {
+        Self {
+            timeout: Duration::from_millis(config.request_timeout_ms),
+            config: Arc::new(config.clone()),
+        }
+    }
+}
+
+fn with_middleware(router: Router, timeout_state: RequestTimeoutState) -> Router {
     router
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(
-            request_timeout,
+            timeout_state,
             request_timeout_middleware,
         ))
         .layer(middleware::from_fn(security_headers_middleware))
@@ -496,13 +529,21 @@ fn dependency_class(status: StatusCode) -> &'static str {
 }
 
 async fn request_timeout_middleware(
-    State(request_timeout): State<Duration>,
+    State(timeout_state): State<RequestTimeoutState>,
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    match tokio::time::timeout(request_timeout, next.run(request)).await {
+    let request_id = request
+        .extensions()
+        .get::<RequestId>()
+        .cloned()
+        .unwrap_or_else(|| request_id_from_headers(request.headers()));
+    match tokio::time::timeout(timeout_state.timeout, next.run(request)).await {
         Ok(response) => response,
-        Err(_) => StatusCode::REQUEST_TIMEOUT.into_response(),
+        Err(_) => {
+            ProblemDetails::from_code(ErrorCode::RequestTimeout, &timeout_state.config, request_id)
+                .into_response()
+        }
     }
 }
 

@@ -93,3 +93,4 @@ services:
 
 volumes:
   myurl-redis-data:
+    name: ${REDIS_VOLUME_NAME:-myurl-redis-data}

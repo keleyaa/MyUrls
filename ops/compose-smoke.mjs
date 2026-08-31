@@ -16,18 +16,40 @@ function freePort() {
   });
 }
 
-function run(command, args, env) {
+function run(command, args, env, timeoutMs = 120_000) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { env, stdio: 'inherit' });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} exited with ${signal ?? code}`));
-    });
+    let settled = false;
+    let timedOut = false;
+    let forceTimer;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      forceTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    }, timeoutMs);
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      callback();
+    };
+    child.once('error', (error) =>
+      finish(() =>
+        reject(timedOut ? new Error(`${command} timed out after ${timeoutMs}ms`) : error),
+      ),
+    );
+    child.once('exit', (code, signal) =>
+      finish(() => {
+        if (timedOut) reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+        else if (code === 0) resolve();
+        else reject(new Error(`${command} exited with ${signal ?? code}`));
+      }),
+    );
   });
 }
 
-function runCapture(command, args, env) {
+function runCapture(command, args, env, timeoutMs = 30_000) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -36,12 +58,56 @@ function runCapture(command, args, env) {
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`${command} exited with ${signal ?? code}: ${stderr.slice(-1000)}`));
-    });
+    let settled = false;
+    let timedOut = false;
+    let forceTimer;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      forceTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    }, timeoutMs);
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      callback();
+    };
+    child.once('error', (error) =>
+      finish(() =>
+        reject(timedOut ? new Error(`${command} timed out after ${timeoutMs}ms`) : error),
+      ),
+    );
+    child.once('exit', (code, signal) =>
+      finish(() => {
+        if (timedOut) reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+        else if (code === 0) resolve(stdout);
+        else reject(new Error(`${command} exited with ${signal ?? code}: ${stderr.slice(-1000)}`));
+      }),
+    );
   });
+}
+
+function fetchWithTimeout(url, options = {}) {
+  return fetch(url, { signal: AbortSignal.timeout(10_000), ...options });
+}
+
+async function expectStaticResource(url, expectedContentTypes) {
+  const response = await fetchWithTimeout(url, { redirect: 'manual' });
+  const contentType = response.headers.get('content-type') ?? '';
+  if (
+    !response.ok ||
+    !expectedContentTypes.some((expectedContentType) => contentType.startsWith(expectedContentType))
+  ) {
+    throw new Error(`static resource check failed for ${url}: ${response.status} ${contentType}`);
+  }
+  return response;
+}
+
+function assetContentTypes(assetPath) {
+  if (assetPath.endsWith('.js')) return ['text/javascript', 'application/javascript'];
+  if (assetPath.endsWith('.css')) return ['text/css'];
+  throw new Error(`unsupported asset type in home page: ${assetPath}`);
 }
 
 const project = `myurl-smoke-${process.pid}`;
@@ -57,6 +123,7 @@ const env = {
   REDIS_URL: 'redis://redis:6379/0',
   TURNSTILE_ENABLED: 'false',
   REDIS_PASSWORD: 'compose-smoke-password',
+  REDIS_VOLUME_NAME: `${project}-redis-data`,
 };
 
 let mainError;
@@ -64,18 +131,33 @@ let teardownError;
 
 try {
   await run('docker', ['compose', ...composeArgs, 'up', '-d', '--build', '--wait'], env);
-  const live = await fetch(`${baseUrl}/health/live`);
-  const ready = await fetch(`${baseUrl}/health/ready`);
+  const live = await fetchWithTimeout(`${baseUrl}/health/live`);
+  const ready = await fetchWithTimeout(`${baseUrl}/health/ready`);
   if (!live.ok || !ready.ok) throw new Error('health checks failed');
 
-  const create = await fetch(`${baseUrl}/api/links`, {
+  const home = await expectStaticResource(`${baseUrl}/`, ['text/html']);
+  const homeHtml = await home.text();
+  const assetPaths = [...homeHtml.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(
+    ([, path]) => path,
+  );
+  if (assetPaths.length === 0) throw new Error('home page does not reference built assets');
+  await Promise.all(
+    assetPaths.map((assetPath) =>
+      expectStaticResource(`${baseUrl}${assetPath}`, assetContentTypes(assetPath)),
+    ),
+  );
+  await expectStaticResource(`${baseUrl}/favicon.svg`, ['image/svg+xml']);
+  await expectStaticResource(`${baseUrl}/robots.txt`, ['text/plain']);
+  await expectStaticResource(`${baseUrl}/sitemap.xml`, ['application/xml', 'text/xml']);
+
+  const create = await fetchWithTimeout(`${baseUrl}/api/links`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ url: 'https://example.com/compose-smoke' }),
   });
   if (create.status !== 201) throw new Error(`create failed: ${create.status}`);
   const created = await create.json();
-  const redirect = await fetch(created.shortUrl, { redirect: 'manual' });
+  const redirect = await fetchWithTimeout(created.shortUrl, { redirect: 'manual' });
   if (
     redirect.status !== 302 ||
     redirect.headers.get('location') !== 'https://example.com/compose-smoke'
@@ -85,12 +167,19 @@ try {
 
   await run('docker', ['compose', ...composeArgs, 'restart', 'redis'], env);
   await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait', 'redis'], env);
-  let afterRedisRestart = await fetch(created.shortUrl, { redirect: 'manual' });
+  let afterRedisRestart = await fetchWithTimeout(created.shortUrl, { redirect: 'manual' });
   if (afterRedisRestart.status !== 302) {
-    afterRedisRestart = await fetch(created.shortUrl, { redirect: 'manual' });
+    afterRedisRestart = await fetchWithTimeout(created.shortUrl, { redirect: 'manual' });
   }
   if (afterRedisRestart.status !== 302) {
     throw new Error('app did not recover after the Redis-only restart');
+  }
+
+  await run('docker', ['compose', ...composeArgs, 'restart', 'app'], env);
+  await run('docker', ['compose', ...composeArgs, 'up', '-d', '--wait', 'app'], env);
+  const afterAppRestart = await fetchWithTimeout(created.shortUrl, { redirect: 'manual' });
+  if (afterAppRestart.status !== 302) {
+    throw new Error('app did not recover after the app restart');
   }
 
   const redisContainer = (
@@ -105,6 +194,23 @@ try {
   ).trim();
   if (portBindings !== '{}' && portBindings !== 'null') {
     throw new Error('Redis must not publish a host port');
+  }
+
+  const appContainer = (
+    await runCapture('docker', ['compose', ...composeArgs, 'ps', '-q', 'app'], env)
+  ).trim();
+  const appBindings = JSON.parse(
+    (
+      await runCapture(
+        'docker',
+        ['inspect', '--format', '{{json .HostConfig.PortBindings}}', appContainer],
+        env,
+      )
+    ).trim(),
+  );
+  const publishedAppBindings = appBindings?.['3000/tcp'] ?? [];
+  if (publishedAppBindings.length !== 1 || publishedAppBindings[0].HostIp !== '127.0.0.1') {
+    throw new Error('App must publish port 3000 only on loopback');
   }
 } catch (error) {
   mainError = error;

@@ -18,6 +18,7 @@ pub enum ErrorCode {
     UrlNotAllowed,
     AliasInvalid,
     RateLimited,
+    RequestTimeout,
     DependencyUnavailable,
     CodeGenerationExhausted,
 }
@@ -32,6 +33,7 @@ impl ErrorCode {
             Self::UrlNotAllowed => "url_not_allowed",
             Self::AliasInvalid => "alias_invalid",
             Self::RateLimited => "rate_limited",
+            Self::RequestTimeout => "request_timeout",
             Self::DependencyUnavailable => "dependency_unavailable",
             Self::CodeGenerationExhausted => "code_generation_exhausted",
         }
@@ -44,6 +46,7 @@ impl ErrorCode {
             Self::AliasUnavailable => 409,
             Self::UrlNotAllowed | Self::AliasInvalid => 422,
             Self::RateLimited => 429,
+            Self::RequestTimeout => 408,
             Self::DependencyUnavailable | Self::CodeGenerationExhausted => 503,
         }
     }
@@ -425,6 +428,7 @@ mod tests {
             (ErrorCode::UrlNotAllowed, "url_not_allowed", 422),
             (ErrorCode::AliasInvalid, "alias_invalid", 422),
             (ErrorCode::RateLimited, "rate_limited", 429),
+            (ErrorCode::RequestTimeout, "request_timeout", 408),
             (
                 ErrorCode::DependencyUnavailable,
                 "dependency_unavailable",

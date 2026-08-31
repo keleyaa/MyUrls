@@ -11,12 +11,24 @@ export default tseslint.config(
       'playwright-report/**',
       'output/**',
       'legacy/**',
-      '**/*.svelte',
     ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   ...svelte.configs['flat/recommended'],
+  {
+    files: ['**/*.svelte'],
+    languageOptions: {
+      parserOptions: {
+        extraFileExtensions: ['.svelte'],
+        parser: tseslint.parser,
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unassigned-vars': 'off',
+    },
+  },
   {
     files: ['**/*.{ts,tsx,mts,cts}'],
     rules: {
@@ -31,6 +43,8 @@ export default tseslint.config(
     files: ['ops/**/*.mjs'],
     languageOptions: {
       globals: {
+        AbortSignal: 'readonly',
+        clearTimeout: 'readonly',
         fetch: 'readonly',
         process: 'readonly',
         setTimeout: 'readonly',

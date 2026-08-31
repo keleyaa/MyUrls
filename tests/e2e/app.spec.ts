@@ -15,6 +15,18 @@ function resultCode(page: Page, code: string) {
 }
 
 test.describe('myurl user flows', () => {
+  test('serves the favicon as a static SVG resource', async ({ page }) => {
+    const favicon = await page.request.get('/favicon.svg');
+    expect(favicon.status()).toBe(200);
+    expect(favicon.headers()['content-type']).toContain('image/svg+xml');
+    expect(await favicon.text()).toContain('<svg');
+
+    const faviconHead = await page.request.head('/favicon.svg');
+    expect(faviconHead.status()).toBe(200);
+    expect(faviconHead.headers()['content-type']).toContain('image/svg+xml');
+    expect(await faviconHead.body()).toHaveLength(0);
+  });
+
   test('creates by click and keeps the result visible', async ({ page }, testInfo) => {
     if (testInfo.project.name !== 'webkit') {
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);

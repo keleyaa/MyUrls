@@ -46,6 +46,7 @@ curl --fail --silent http://127.0.0.1:${APP_PORT:-3000}/health/ready
 | `PUBLIC_BASE_URL`         | 无                     | 生成短链使用的可信 HTTPS origin                          |
 | `REDIS_URL`               | `redis://redis:6379/0` | Redis URL，支持 `redis` 和 `rediss`                      |
 | `REDIS_PASSWORD`          | 空                     | Compose Redis 密码；应用会在启动时合并到 `REDIS_URL`     |
+| `REDIS_VOLUME_NAME`       | `myurl-redis-data`     | Compose Redis 数据卷名；恢复切换时更新为新卷             |
 | `REDIS_TIMEOUT_MS`        | `750`                  | 单条 Redis 命令的超时                                    |
 | `IP_HASH_SECRET`          | 无                     | HMAC 密钥，至少 32 字节                                  |
 | `TRUST_PROXY_CIDRS`       | 空                     | 逗号分隔的可信代理 CIDR                                  |
@@ -94,17 +95,28 @@ docker compose stop app redis
 ./ops/redis-restore.sh \
   /secure/backups/redis-20260826T020000Z.rdb \
    myurl-redis-restore-20260826 \
-  launch \
-  https://example.com/articles/launch
+   launch \
+   https://example.com/articles/launch
 ```
 
-恢复脚本强制校验 sidecar，并要求传入一个短码和预期目标 URL；它会用临时 `appendonly no` Redis 加载 RDB，执行 `PING` 和短链抽样检查，再生成 AOF 基线。抽样不匹配、sidecar 缺失或卷已存在都会失败，失败时新建的临时卷会清理。脚本成功只代表新卷已经过校验，不会自动修改 Compose 或切换流量。确认成功后，用新卷启动 Redis，再次执行 `PING` 和短链抽样检查，最后才更新 Compose 的卷引用并启动应用。不要直接覆盖现有 `myurl-redis-data`，不要把旧 deployment 的 Redis 卷或 key 复制到当前数据集。候选发布的自动恢复演练由 `corepack pnpm backup:restore` 执行，并使用唯一临时卷。
+恢复脚本强制校验 sidecar，并要求传入一个短码和预期目标 URL；它会用临时 `appendonly no` Redis 加载 RDB，执行 `PING` 和短链抽样检查，再生成 AOF 基线。抽样不匹配、sidecar 缺失或卷已存在都会失败，失败时新建的临时卷会清理。脚本成功只代表新卷已经过校验，不会自动修改 Compose 或切换流量。确认成功后，用候选卷启动 Redis，再次执行 `PING` 和短链抽样检查；先在受保护的生产 `.env` 中持久化更新 `REDIS_VOLUME_NAME`，再启动应用：
+
+```sh
+${EDITOR:-vi} .env
+# 将 REDIS_VOLUME_NAME 设置为 myurl-redis-restore-20260826
+
+# 需要 jq；确认 Compose 解析出的实际卷名是候选卷
+docker compose config --format json | jq -e '.volumes["myurl-redis-data"].name == "myurl-redis-restore-20260826"'
+docker compose up -d --wait
+```
+
+后续所有 Compose 命令都必须使用同一个 `.env`，不要只在单次命令前临时导出变量。不要直接覆盖现有 `myurl-redis-data`，不要把旧 deployment 的 Redis 卷或 key 复制到当前数据集。候选发布的自动恢复演练由 `corepack pnpm backup:restore` 执行，并使用唯一临时卷。
 
 目标是单 VPS 下 `RPO <= 24 小时`、`RTO <= 2 小时`；这不是高可用承诺。AOF、RDB 和异机备份提供可恢复性，不提供零停机或零数据丢失。
 
 ## 数据切换与回滚
 
-Rust 发布使用 Compose 创建的 `myurl-redis-data` 新卷。旧 deployment 的 Redis 卷仅保留为回滚证据，不迁移、挂载或双读；因此旧短链在切换后不会由 Rust 服务解析。切换前先验证旧卷与备份可独立恢复，再停止旧应用，使用新卷启动 Rust deployment 并检查 `/health/live`、`/health/ready` 与创建/解析流程。
+Rust 发布使用 Compose 默认创建的 `myurl-redis-data` 新卷；恢复切换时通过 `REDIS_VOLUME_NAME` 临时指向已验证的新卷。旧 deployment 的 Redis 卷仅保留为回滚证据，不迁移、挂载或双读；因此旧短链在切换后不会由 Rust 服务解析。切换前先验证旧卷与备份可独立恢复，再停止旧应用，使用新卷启动 Rust deployment 并检查 `/health/live`、`/health/ready` 与创建/解析流程。
 
 应用问题优先停止 Rust 写入、保留 `myurl-redis-data` 和备份，再按发布系统切回已验证的旧 deployment，并重新挂载它自己的旧 Redis 卷。不能只替换容器镜像来复用另一数据集；回滚后的新写入与 Rust 数据集同样不兼容。
 

@@ -6,6 +6,7 @@ export type ErrorCode =
   | 'url_not_allowed'
   | 'alias_invalid'
   | 'rate_limited'
+  | 'request_timeout'
   | 'dependency_unavailable'
   | 'code_generation_exhausted';
 
@@ -44,6 +45,7 @@ const errorCodes = new Set<ErrorCode>([
   'url_not_allowed',
   'alias_invalid',
   'rate_limited',
+  'request_timeout',
   'dependency_unavailable',
   'code_generation_exhausted',
 ]);

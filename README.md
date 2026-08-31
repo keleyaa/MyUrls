@@ -94,11 +94,11 @@ cargo run -p myurl-server --features test-support
 corepack pnpm verify
 ```
 
-该命令覆盖格式、ESLint、TypeScript/Svelte 检查、严格 Rust Clippy、Rust 单元/API/Redis 集成、24 个 Playwright 浏览器用例、Rust 1.88 镜像构建、Compose smoke、性能、备份恢复、依赖审计、容器安全与运行时资源检查。
+该命令覆盖格式、ESLint、TypeScript/Svelte 检查、严格 Rust Clippy、Rust 单元/API/Redis 集成、27 个 Playwright 浏览器用例、Rust 1.88 镜像构建、Compose smoke、性能、备份恢复、依赖审计、容器安全与运行时资源检查。
 
 ### 镜像发布
 
-在 GitHub Actions 中运行 `Publish GHCR image`，输入稳定版本号。工作流会先通过完整 CI，再发布多架构镜像、创建同名 annotated Git tag，并同时更新版本标签、提交 SHA 标签和 `latest`。
+在 GitHub Actions 中运行 `Publish GHCR image`，输入稳定版本号。工作流会先通过完整 CI，确认发布提交属于 `master` 并创建或复用同名 annotated Git tag，再发布多架构镜像，同时更新版本标签、提交 SHA 标签和 `latest`。仓库管理员还必须为 `v*` 标签配置 ruleset，禁止删除和强制更新；工作流会拒绝 forced tag push，但无法替代仓库级保护。
 
 ```text
 ghcr.io/keleyaa/myurls:<release>

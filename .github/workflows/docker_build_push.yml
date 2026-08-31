@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ghcr-release
+  cancel-in-progress: false
+
 jobs:
   verification:
     name: Run full CI verification
@@ -33,6 +37,20 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate release commit
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor "${RELEASE_SHA}" refs/remotes/origin/master; then
+            echo 'Release commits must be reachable from master.' >&2
+            exit 1
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
@@ -54,6 +72,7 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FORCED: ${{ github.event.forced }}
           REF_NAME: ${{ github.ref_name }}
           VERSION_INPUT: ${{ inputs.version }}
         run: |
@@ -63,12 +82,15 @@ jobs:
             candidate="${VERSION_INPUT}"
           fi
 
+          if [[ "${EVENT_NAME}" == 'push' && "${FORCED}" == 'true' ]]; then
+            echo 'Forced tag updates are not valid release events.' >&2
+            exit 1
+          fi
+
           stable_tag_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
-          if [[ "${EVENT_NAME}" == 'workflow_dispatch' ]]; then
-            if [[ ! "${candidate}" =~ ${stable_tag_pattern} ]]; then
-              echo 'Manual releases must use a version like v2.0.0.' >&2
-              exit 1
-            fi
+          if [[ ! "${candidate}" =~ ${stable_tag_pattern} ]]; then
+            echo 'Releases must use a stable version like v2.0.0.' >&2
+            exit 1
           fi
 
           oci_tag_pattern='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
@@ -108,14 +130,33 @@ jobs:
             printf 'EOF\n'
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Reject an existing manual Git tag
+      - name: Ensure Git tag for manual release
         if: github.event_name == 'workflow_dispatch'
         env:
           RELEASE_TAG: ${{ steps.image_tags.outputs.release_tag }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
-          if git ls-remote --exit-code --refs origin "refs/tags/${RELEASE_TAG}" >/dev/null; then
-            echo "Git tag ${RELEASE_TAG} already exists and stable releases are immutable." >&2
-            exit 1
+          set -euo pipefail
+          set +e
+          git ls-remote --exit-code --refs origin "refs/tags/${RELEASE_TAG}" >/dev/null
+          tag_status=$?
+          set -e
+          if [[ "${tag_status}" -eq 0 ]]; then
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}"
+            existing_sha="$(git rev-parse FETCH_HEAD^{commit})"
+            if [[ "${existing_sha}" != "${RELEASE_SHA}" ]]; then
+              echo "Git tag ${RELEASE_TAG} already points to ${existing_sha}, not ${RELEASE_SHA}." >&2
+              exit 1
+            fi
+            echo "Git tag ${RELEASE_TAG} already points to this commit; continuing."
+          elif [[ "${tag_status}" -eq 2 ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag --annotate "${RELEASE_TAG}" "${RELEASE_SHA}" --message "Release ${RELEASE_TAG}"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          else
+            echo "Unable to check whether Git tag ${RELEASE_TAG} exists." >&2
+            exit "${tag_status}"
           fi
 
       - name: Build and publish image
@@ -130,17 +171,6 @@ jobs:
           sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Create Git tag for manual release
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          RELEASE_TAG: ${{ steps.image_tags.outputs.release_tag }}
-          RELEASE_SHA: ${{ github.sha }}
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag --annotate "${RELEASE_TAG}" "${RELEASE_SHA}" --message "Release ${RELEASE_TAG}"
-          git push origin "refs/tags/${RELEASE_TAG}"
 
       - name: Publish image digest summary
         env:

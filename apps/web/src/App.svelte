@@ -30,6 +30,7 @@
     url_not_allowed: '请输入有效的 HTTP(S) 地址。',
     alias_invalid: '别名需为 4–32 个小写字母、数字、下划线或短横线。',
     rate_limited: '请求过于频繁，请稍后再试。',
+    request_timeout: '请求处理超时，请稍后重试。',
     dependency_unavailable: '服务暂时不可用，请稍后重试。',
     code_generation_exhausted: '暂时无法生成短码，请稍后重试。',
   };
