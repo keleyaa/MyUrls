@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { AlertTriangle, CircleCheck, LoaderCircle } from '@lucide/svelte';
+  import { AlertTriangle, CircleX, LoaderCircle } from '@lucide/svelte';
   import BrandHeader from './components/BrandHeader.svelte';
   import LinkComposer from './components/LinkComposer.svelte';
   import LinkResult from './components/LinkResult.svelte';
@@ -284,7 +284,7 @@
           {#if state.kind === 'rate-limited'}
             <AlertTriangle size={18} aria-hidden="true" />
           {:else}
-            <CircleCheck size={18} aria-hidden="true" />
+            <CircleX size={18} aria-hidden="true" />
           {/if}
           <span>{statusMessage}</span>
         </div>
