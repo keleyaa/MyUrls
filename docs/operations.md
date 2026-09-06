@@ -19,6 +19,8 @@ corepack pnpm verify
 - `TRUST_PROXY_CIDRS` 只填写实际控制并会清理转发头的代理网段，不使用信任全部的配置。
 - `REDIS_URL` 指向 Compose 内部 `redis:6379`，若使用密码，凭据只放在受保护的环境文件中。
 
+非生产环境（`NODE_ENV` 为 `development` 或 `test`）额外接受本机回环 Origin（`127.0.0.0/8`、`::1`、`localhost`），用于 Vite 开发服务器跨端口调用；这类环境不应暴露到公网。
+
 启动：
 
 ```sh

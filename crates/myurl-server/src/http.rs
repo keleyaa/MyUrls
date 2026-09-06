@@ -22,7 +22,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use crate::{
-    config::{AppConfig, MAX_BODY_BYTES},
+    config::{AppConfig, MAX_BODY_BYTES, NodeEnvironment},
     error::{AppError, Challenge, ErrorCode, ResponseMetadata},
     ip::get_client_ip,
     ports::LinkStore,
@@ -450,9 +450,43 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
 }
 
 fn has_valid_origin(headers: &HeaderMap, config: &AppConfig) -> bool {
-    headers
-        .get(header::ORIGIN)
-        .is_none_or(|origin| origin.to_str().ok() == Some(config.public_base_origin.as_str()))
+    headers.get(header::ORIGIN).is_none_or(|origin| {
+        let Ok(origin) = origin.to_str() else {
+            return false;
+        };
+        origin == config.public_base_origin || is_dev_loopback_origin(origin, config)
+    })
+}
+
+/// Accepts loopback origins outside production so the Vite dev server, which
+/// serves the frontend on a different port, can call the API. Production keeps
+/// the strict same-origin policy.
+fn is_dev_loopback_origin(origin: &str, config: &AppConfig) -> bool {
+    if config.node_env == NodeEnvironment::Production {
+        return false;
+    }
+
+    let Ok(parsed) = url::Url::parse(origin) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed
+            .password()
+            .is_some_and(|password| !password.is_empty())
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return false;
+    }
+
+    match parsed.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(hostname)) => hostname.eq_ignore_ascii_case("localhost"),
+        None => false,
+    }
 }
 
 fn redirect_response(target_url: &str) -> Response {
@@ -595,8 +629,9 @@ mod tests {
 
     use super::{
         AppConfig, AppError, CreateLinkRequest, CreateLinkResponse, ProblemDetails, RequestId,
-        is_valid_request_id, request_id_from_headers,
+        has_valid_origin, is_dev_loopback_origin, is_valid_request_id, request_id_from_headers,
     };
+    use crate::config::NodeEnvironment;
 
     const PUBLIC_BASE_ORIGIN: &str = "https://myurl.example";
 
@@ -836,6 +871,62 @@ mod tests {
         assert_eq!(error.code().as_str(), "invalid_request");
         assert_eq!(error.status_code(), 400);
         assert_eq!(error.to_string(), "invalid request");
+    }
+
+    #[test]
+    fn origin_validation_allows_exact_origin_and_dev_loopback_only() {
+        let config = test_config(PUBLIC_BASE_ORIGIN);
+        let mut headers = HeaderMap::new();
+
+        assert!(has_valid_origin(&headers, &config));
+
+        headers.insert(header::ORIGIN, PUBLIC_BASE_ORIGIN.parse().unwrap());
+        assert!(has_valid_origin(&headers, &config));
+
+        for origin in [
+            "http://127.0.0.1:5173",
+            "http://127.0.0.2:5173",
+            "http://localhost:5173",
+            "http://[::1]:5173",
+        ] {
+            headers.insert(header::ORIGIN, origin.parse().unwrap());
+            assert!(
+                has_valid_origin(&headers, &config),
+                "{origin} should be allowed"
+            );
+        }
+
+        headers.insert(header::ORIGIN, "https://attacker.example".parse().unwrap());
+        assert!(!has_valid_origin(&headers, &config));
+
+        for origin in [
+            "http://user:pass@127.0.0.1:5173",
+            "http://127.0.0.1:5173/path",
+            "http://127.0.0.1:5173?query=1",
+            "http://127.0.0.1:5173#fragment",
+        ] {
+            headers.insert(header::ORIGIN, origin.parse().unwrap());
+            assert!(
+                !has_valid_origin(&headers, &config),
+                "{origin} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn dev_loopback_origins_are_rejected_in_production() {
+        let mut config = test_config(PUBLIC_BASE_ORIGIN);
+        config.node_env = NodeEnvironment::Production;
+
+        assert!(!is_dev_loopback_origin("http://127.0.0.1:5173", &config));
+        assert!(!is_dev_loopback_origin("http://localhost:5173", &config));
+        assert!(!is_dev_loopback_origin("http://[::1]:5173", &config));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, "http://127.0.0.1:5173".parse().unwrap());
+        assert!(!has_valid_origin(&headers, &config));
+        headers.insert(header::ORIGIN, PUBLIC_BASE_ORIGIN.parse().unwrap());
+        assert!(has_valid_origin(&headers, &config));
     }
 
     async fn response_json(response: axum::response::Response) -> Value {

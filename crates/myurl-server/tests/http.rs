@@ -186,6 +186,30 @@ async fn creates_links_with_configured_origin_while_ignoring_host() {
 }
 
 #[tokio::test]
+async fn accepts_dev_loopback_origins_through_the_create_route() {
+    let (app, store) = test_app(test_config(), FakeTurnstile::new());
+    for origin in ["http://127.0.0.1:5173", "http://localhost:5173"] {
+        let response = call(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/links")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, origin)
+                .body(Body::from(r#"{"url":"https://example.com/dev-origin"}"#))
+                .expect("dev origin request is valid"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::CREATED,
+            "{origin} should reach the create route"
+        );
+    }
+    close(&store).await;
+}
+
+#[tokio::test]
 async fn request_timeout_limits_slow_challenge_verification() {
     let config = test_config_with(&[
         ("TURNSTILE_ENABLED", "true"),
